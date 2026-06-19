@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ShopeeBot — Callback</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#F5F5F5;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{background:#fff;border-radius:14px;padding:32px;max-width:520px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.logo{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+.logo-icon{width:44px;height:44px;background:#EE4D2D;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.logo-text{font-size:18px;font-weight:800;color:#EE4D2D}
+.logo-sub{font-size:12px;color:#888}
+.status{border-radius:10px;padding:16px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px}
+.status.success{background:#e8f5e9;border:1.5px solid #a5d6a7}
+.status.waiting{background:#fff8e1;border:1.5px solid #ffe082}
+.status.error{background:#fef2f2;border:1.5px solid #fca5a5}
+.status-icon{font-size:24px;flex-shrink:0}
+.status-title{font-size:14px;font-weight:700;margin-bottom:4px}
+.status-desc{font-size:12px;color:#555;line-height:1.6}
+.field{background:#fafafa;border:1px solid #e4e4e4;border-radius:8px;padding:12px 14px;margin-bottom:10px}
+.field-label{font-size:11px;color:#888;font-weight:600;margin-bottom:5px}
+.field-value{font-size:13px;font-weight:700;color:#1a1a1a;word-break:break-all;font-family:'Courier New',monospace}
+.copy-btn{width:100%;margin-top:6px;background:#EE4D2D;color:#fff;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;transition:background .15s}
+.copy-btn:hover{background:#C93D20}
+.copy-btn.copied{background:#2e7d32}
+.next-steps{background:#e3f2fd;border:1px solid #90caf9;border-radius:10px;padding:14px;margin-top:16px}
+.next-title{font-size:12px;font-weight:700;color:#1565c0;margin-bottom:8px}
+.next-item{font-size:12px;color:#1565c0;padding:3px 0;display:flex;gap:7px;line-height:1.5}
+.divider{height:1px;background:#eee;margin:16px 0}
+.footer{font-size:11px;color:#aaa;text-align:center;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">📶</div>
+    <div>
+      <div class="logo-text">ShopeeBot</div>
+      <div class="logo-sub">ซิมเน็ต — Shopee Authorization Callback</div>
+    </div>
+  </div>
+
+  <!-- Status: กำลังตรวจสอบ -->
+  <div class="status waiting" id="s-wait">
+    <span class="status-icon">⏳</span>
+    <div>
+      <div class="status-title">กำลังตรวจสอบ...</div>
+      <div class="status-desc">กรุณารอสักครู่</div>
+    </div>
+  </div>
+
+  <!-- Status: สำเร็จ -->
+  <div class="status success" id="s-ok" style="display:none">
+    <span class="status-icon">✅</span>
+    <div>
+      <div class="status-title">Authorization สำเร็จ!</div>
+      <div class="status-desc">Shopee อนุญาตการเชื่อมต่อแล้ว — คัดลอกค่าด้านล่างส่งให้นักพัฒนา</div>
+    </div>
+  </div>
+
+  <!-- Status: ผิดพลาด -->
+  <div class="status error" id="s-err" style="display:none">
+    <span class="status-icon">❌</span>
+    <div>
+      <div class="status-title">ไม่พบข้อมูล Authorization</div>
+      <div class="status-desc" id="err-msg">หน้านี้ใช้รับข้อมูลจาก Shopee หลังกดอนุญาต App เท่านั้น</div>
+    </div>
+  </div>
+
+  <!-- ค่าที่ได้ -->
+  <div id="result-area" style="display:none">
+    <div class="field">
+      <div class="field-label">📋 CODE (ใช้แลกเป็น Access Token)</div>
+      <div class="field-value" id="val-code">—</div>
+    </div>
+    <div class="field">
+      <div class="field-label">🏪 SHOP ID</div>
+      <div class="field-value" id="val-shop">—</div>
+    </div>
+    <div class="field" id="field-main-acc" style="display:none">
+      <div class="field-label">👤 MAIN ACCOUNT ID</div>
+      <div class="field-value" id="val-main">—</div>
+    </div>
+
+    <button class="copy-btn" id="copy-all-btn" onclick="copyAll()">
+      📋 คัดลอกทั้งหมดส่งนักพัฒนา
+    </button>
+
+    <div class="next-steps">
+      <div class="next-title">📌 ขั้นตอนถัดไป</div>
+      <div class="next-item"><span>1️⃣</span><span>กด "คัดลอกทั้งหมด" ด้านบน</span></div>
+      <div class="next-item"><span>2️⃣</span><span>ส่งค่าที่คัดลอกให้นักพัฒนา (Claude)</span></div>
+      <div class="next-item"><span>3️⃣</span><span>นักพัฒนาจะนำ Code ไปแลกเป็น Access Token</span></div>
+      <div class="next-item"><span>4️⃣</span><span>ระบบ ShopeeBot จะพร้อมใช้งานทันที</span></div>
+    </div>
+
+    <div class="divider"></div>
+    <div style="font-size:11px;color:#aaa;text-align:center">
+      ⚠️ Code นี้ใช้ได้ครั้งเดียวและหมดอายุใน 10 นาที — คัดลอกทันที
+    </div>
+  </div>
+
+  <div class="footer">ShopeeBot SimNet Chat · Powered by Shopee Open API v2</div>
+</div>
+
+<script>
+// ดึงค่าจาก URL ที่ Shopee ส่งกลับมา
+// รูปแบบ: ?code=xxx&shop_id=yyy  หรือ  ?code=xxx&main_account_id=zzz
+const p       = new URLSearchParams(window.location.search);
+const code    = p.get('code');
+const shopId  = p.get('shop_id');
+const mainAcc = p.get('main_account_id');
+const error   = p.get('error');
+
+document.getElementById('s-wait').style.display = 'none';
+
+if (error) {
+  document.getElementById('s-err').style.display = 'flex';
+  document.getElementById('err-msg').textContent = 'Shopee ส่ง error: ' + error;
+
+} else if (code) {
+  // สำเร็จ
+  document.getElementById('s-ok').style.display  = 'flex';
+  document.getElementById('result-area').style.display = 'block';
+
+  document.getElementById('val-code').textContent = code;
+  document.getElementById('val-shop').textContent = shopId || '(ไม่มี — อาจเป็น main account)';
+
+  if (mainAcc) {
+    document.getElementById('field-main-acc').style.display = 'block';
+    document.getElementById('val-main').textContent = mainAcc;
+  }
+
+  // บันทึกลง sessionStorage ด้วย เผื่อ refresh
+  sessionStorage.setItem('shopee_code',    code);
+  sessionStorage.setItem('shopee_shop_id', shopId  || '');
+  sessionStorage.setItem('shopee_main_id', mainAcc || '');
+
+} else {
+  // ไม่มี code ในล URL — หน้า callback เปล่า
+  document.getElementById('s-err').style.display = 'flex';
+}
+
+function copyAll() {
+  const code   = document.getElementById('val-code').textContent;
+  const shopId = document.getElementById('val-shop').textContent;
+  const main   = document.getElementById('val-main').textContent || '-';
+
+  const text = [
+    '=== ShopeeBot Authorization ===',
+    'CODE    : ' + code,
+    'SHOP ID : ' + shopId,
+    'MAIN ID : ' + main,
+    '================================',
+    'วันที่: ' + new Date().toLocaleString('th'),
+    '⚠️ Code หมดอายุใน 10 นาที'
+  ].join('\n');
+
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-all-btn');
+    btn.textContent = '✅ คัดลอกแล้ว! ส่งให้นักพัฒนาได้เลย';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '📋 คัดลอกทั้งหมดส่งนักพัฒนา';
+      btn.classList.remove('copied');
+    }, 4000);
+  });
+}
+</script>
+</body>
+</html>
