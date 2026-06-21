@@ -2,24 +2,29 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>ShopeeBot Callback</title>
 </head>
 <body>
+<p id="msg">กำลังดำเนินการ...</p>
 <script>
-// รับ code จาก Shopee แล้วส่งไป Worker ทันทีอัตโนมัติ
-const params = new URLSearchParams(window.location.search);
-const code   = params.get('code');
-const shopId = params.get('shop_id');
+const params   = new URLSearchParams(window.location.search);
+const code     = params.get('code');
+const shop_id  = params.get('shop_id');
+const error    = params.get('error');
 
-if (code) {
-  // ส่งไป Cloudflare Worker ทันที ไม่ต้อง copy
-  const workerUrl = 'https://shrill-morning-e9cbshopeechatbot.shinewarayut.workers.dev/?code=' + code;
+if (error) {
+  document.getElementById('msg').textContent = 'Error: ' + error;
+} else if (code) {
+  // ส่ง code ตรงๆ ไป Worker — ไม่ encode อะไรทั้งนั้น
+  const workerUrl = 'https://shrill-morning-e9cbshopeechatbot.shinewarayut.workers.dev/'
+    + '?code=' + encodeURIComponent(code)
+    + (shop_id ? '&shop_id=' + encodeURIComponent(shop_id) : '');
+
+  document.getElementById('msg').textContent = 'กำลัง redirect ไป Worker...';
   window.location.href = workerUrl;
 } else {
-  document.body.innerHTML = '<h3>รอรับ Code จาก Shopee...</h3>';
+  document.getElementById('msg').textContent = 'ไม่พบ code จาก Shopee';
 }
 </script>
-<noscript>กรุณาเปิด JavaScript</noscript>
 </body>
 </html>
