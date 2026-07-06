@@ -30,8 +30,19 @@ checker_thread = None
 # ─── DATABASE (PostgreSQL) ────────────────────────────────────────────────────
 def get_db():
     url = DATABASE_URL
+    if not url:
+        raise Exception("DATABASE_URL not set")
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
+    # encode @ in password part
+    try:
+        from urllib.parse import urlparse, quote
+        p = urlparse(url)
+        if p.password and "@" in p.password:
+            safe_pass = quote(p.password, safe="")
+            url = url.replace(f":{p.password}@", f":{safe_pass}@", 1)
+    except Exception:
+        pass
     return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 def init_db():
@@ -504,13 +515,12 @@ def db_status():
     except Exception as e: return jsonify({"ok":False,"msg":str(e)})
 
 # ─── INIT ─────────────────────────────────────────────────────────────────────
-init_db()
 
-# init DB on startup (gunicorn)
+# Startup: init DB for gunicorn workers
 try:
     init_db()
 except Exception as _e:
-    print(f"init_db warning: {_e}")
+    print(f"DB init warning: {_e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
