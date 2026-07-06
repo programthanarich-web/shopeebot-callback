@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shopee Sim Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --bg:#f5f5f4;--surface:#ffffff;--surface2:#f9f9f8;
+  --border:#e5e3de;--border-s:#ccc9c2;
+  --text:#1c1b18;--text2:#6b6860;--text3:#a09d98;
+  --accent:#2563eb;--accent-bg:#eff6ff;--accent-border:#bfdbfe;--accent-text:#1d4ed8;
+  --success:#16a34a;--success-bg:#f0fdf4;--success-border:#bbf7d0;--success-text:#15803d;
+  --danger:#dc2626;--danger-bg:#fef2f2;--danger-border:#fecaca;--danger-text:#b91c1c;
+  --warning:#d97706;--warning-bg:#fffbeb;--warning-border:#fde68a;--warning-text:#b45309;
+  --radius:7px;--font:'IBM Plex Sans Thai',sans-serif;--mono:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+.app{display:flex;height:100vh;overflow:hidden}
+
+/* Sidebar */
+.sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.logo{padding:1.1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px}
+.logo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;flex-shrink:0}
+.logo-text{font-size:14px;font-weight:500;line-height:1.2}
+.logo-sub{font-size:11px;color:var(--text3)}
+nav{flex:1;padding:.5rem 0;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:9px;padding:.55rem 1.1rem;font-size:13px;color:var(--text2);cursor:pointer;border-radius:6px;margin:1px .5rem;transition:background .12s}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent-bg);color:var(--accent-text);font-weight:500}
+.nav-item i{font-size:17px;flex-shrink:0}
+.nav-sep{margin:.4rem .75rem;border-top:1px solid var(--border)}
+.sidebar-footer{padding:.75rem 1rem;border-top:1px solid var(--border)}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.6rem 1.25rem;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.topbar-title{font-size:15px;font-weight:500;flex:1}
+.page{flex:1;overflow-y:auto;padding:1.25rem}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem}
+.card-title{font-size:13px;font-weight:500;margin-bottom:.85rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+
+/* Stats grid */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.1rem}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.85rem 1rem}
+.stat-label{font-size:11px;color:var(--text3);margin-bottom:3px}
+.stat-value{font-size:22px;font-weight:500}
+
+/* Forms */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:12px;color:var(--text2)}
+input[type=text],input[type=number],input[type=password],select,textarea{
+  height:34px;font-size:13px;padding:0 10px;border-radius:var(--radius);
+  border:1px solid var(--border);background:var(--surface2);color:var(--text);
+  width:100%;font-family:var(--font);outline:none;transition:border .12s}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+textarea{height:56px;padding:8px 10px;resize:none}
+
+/* Buttons */
+.btn{height:34px;padding:0 13px;font-size:13px;border-radius:var(--radius);border:1px solid var(--border-s);background:var(--surface);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-family:var(--font);transition:background .12s}
+.btn:hover{background:var(--surface2)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-primary{background:var(--accent);color:#fff;border-color:transparent}
+.btn-primary:hover{background:#1d4ed8}
+.btn-success{background:var(--success-bg);color:var(--success-text);border-color:var(--success-border)}
+.btn-warning{color:var(--warning-text);border-color:var(--warning-border)}
+.btn-warning:hover{background:var(--warning-bg)}
+.btn-danger{color:var(--danger-text);border-color:var(--danger-border)}
+.btn-danger:hover{background:var(--danger-bg)}
+.btn-sm{height:28px;padding:0 9px;font-size:12px}
+
+/* Pills */
+.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500;white-space:nowrap}
+.pill-green{background:var(--success-bg);color:var(--success-text)}
+.pill-red{background:var(--danger-bg);color:var(--danger-text)}
+.pill-amber{background:var(--warning-bg);color:var(--warning-text)}
+.pill-blue{background:var(--accent-bg);color:var(--accent-text)}
+.pill-gray{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+th{text-align:left;padding:7px 9px;color:var(--text3);font-weight:400;border-bottom:1px solid var(--border);font-size:11px;white-space:nowrap}
+td{padding:8px 9px;border-bottom:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+
+/* Alerts */
+.alert{border-radius:var(--radius);padding:.85rem 1rem;font-size:13px;margin-top:.85rem;line-height:1.8}
+.alert-ok{background:var(--success-bg);border:1px solid var(--success-border);color:var(--success-text)}
+.alert-bad{background:var(--danger-bg);border:1px solid var(--danger-border);color:var(--danger-text)}
+.alert-warn{background:var(--warning-bg);border:1px solid var(--warning-border);color:var(--warning-text)}
+.alert-info{background:var(--accent-bg);border:1px solid var(--accent-border);color:var(--accent-text)}
+
+/* Checker */
+.checker-status{display:flex;align-items:center;gap:8px;font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:#d1d5db;display:inline-block}
+.dot.on{background:#22c55e;box-shadow:0 0 0 2px #bbf7d0}
+.dot.off{background:#9ca3af}
+.log-box{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem;font-family:var(--mono);font-size:11.5px;line-height:1.7;max-height:220px;overflow-y:auto;color:var(--text2)}
+.summary-box{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:.9rem;font-family:var(--mono);font-size:12px;line-height:1.85;white-space:pre-wrap;word-break:break-word;max-height:500px;overflow-y:auto}
+
+/* Row toolbar */
+.toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:.85rem}
+.toolbar input,.toolbar select{height:32px;font-size:12.5px}
+.toolbar input{flex:1;min-width:150px}
+.toolbar select{width:auto}
+
+/* Window badge */
+.window-badge{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--accent-bg);color:var(--accent-text);border:1px solid var(--accent-border);display:inline-flex;align-items:center;gap:4px}
+
+/* Divider */
+hr.div{border:none;border-top:1px solid var(--border);margin:.65rem 0}
+.empty{text-align:center;padding:2rem;color:var(--text3)}
+
+/* Responsive */
+@media(max-width:700px){
+  .sidebar{display:none}
+  .form-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-icon"><i class="ti ti-device-sim-card"></i></div>
+    <div><div class="logo-text">Sim Manager</div><div class="logo-sub">Shopee Open API</div></div>
+  </div>
+  <nav id="nav">
+    <div class="nav-item active" data-page="dashboard"><i class="ti ti-dashboard"></i>ภาพรวม</div>
+    <div class="nav-item" data-page="checker"><i class="ti ti-robot"></i>ตรวจอัตโนมัติ</div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" data-page="blacklist"><i class="ti ti-user-x"></i>บัญชีดำ</div>
+    <div class="nav-item" data-page="orders"><i class="ti ti-list-details"></i>ประวัติออเดอร์</div>
+    <div class="nav-item" data-page="summary"><i class="ti ti-file-text"></i>ใบสรุปวันนี้</div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" data-page="stock"><i class="ti ti-package"></i>จัดการสต็อก</div>
+    <div class="nav-item" data-page="settings"><i class="ti ti-settings"></i>ตั้งค่า</div>
+  </nav>
+  <div class="sidebar-footer">
+    <div style="font-size:11px;color:var(--text3)">ตรวจซ้ำย้อนหลัง 30 วัน</div>
+    <div id="sb-status" style="font-size:11px;color:var(--text3);margin-top:2px">สถานะ: กำลังโหลด...</div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title" id="page-title">ภาพรวม</span>
+    <span id="tb-env" class="pill pill-blue">Live API</span>
+    <span id="tb-checker" class="pill pill-gray"><span class="dot off" id="tb-dot"></span> หยุดทำงาน</span>
+  </div>
+  <div class="page" id="page-content"></div>
+</div>
+</div>
+
+<script>
+const API = '';
+let currentPage = 'dashboard';
+let checkerPoll = null;
+
+// ─── ROUTER ────────────────────────────────────────────────────────────────────
+const pages = {
+  dashboard, checker, blacklist, orders, summary, stock, settings
+};
+
+document.getElementById('nav').addEventListener('click', e => {
+  const item = e.target.closest('.nav-item');
+  if (!item) return;
+  navigate(item.dataset.page);
+});
+
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  const titles = {dashboard:'ภาพรวม',checker:'ระบบตรวจอัตโนมัติ',blacklist:'บัญชีดำ (30 วัน)',orders:'ประวัติออเดอร์',summary:'ใบสรุปวันนี้',stock:'จัดการสต็อก',settings:'ตั้งค่า'};
+  document.getElementById('page-title').textContent = titles[page] || page;
+  pages[page]();
+}
+
+// ─── API HELPERS ───────────────────────────────────────────────────────────────
+async function get(path) {
+  const r = await fetch(API + path); return r.json();
+}
+async function post(path, data) {
+  const r = await fetch(API + path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});
+  return r.json();
+}
+async function del(path) {
+  const r = await fetch(API + path, {method:'DELETE'}); return r.json();
+}
+async function put(path, data) {
+  const r = await fetch(API + path, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  return r.json();
+}
+
+function fmt(n) { return (n||0).toLocaleString(); }
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtDate(s) {
+  if (!s) return '-';
+  const d = new Date(s);
+  return d.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' +
+         d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+}
+function agePill(days) {
+  if (days === 0) return '<span class="pill pill-red">วันนี้</span>';
+  if (days <= 7)  return `<span class="pill pill-amber">${days} วัน</span>`;
+  return `<span class="pill pill-gray">${days} วัน</span>`;
+}
+function vPill(v) {
+  const m = {qty:['pill-red','จำนวนเกิน'],user:['pill-red','ซ้ำ User'],name:['pill-amber','ซ้ำชื่อ'],addr:['pill-amber','ซ้ำที่อยู่'],multi:['pill-red','หลายเงื่อนไข']};
+  const [cls,lbl] = m[v] || ['pill-gray', v];
+  return `<span class="pill ${cls}">${lbl}</span>`;
+}
+
+// ─── GLOBAL STATUS POLL ────────────────────────────────────────────────────────
+async function pollGlobalStatus() {
+  try {
+    const [cfg, cs] = await Promise.all([get('/api/config'), get('/api/checker/status')]);
+    const env = cfg.env === 'test' ? 'Test' : 'Live';
+    document.getElementById('tb-env').textContent = env + ' API';
+    document.getElementById('tb-env').className = 'pill ' + (env==='Live'?'pill-blue':'pill-amber');
+    const dot = document.getElementById('tb-dot');
+    const tb  = document.getElementById('tb-checker');
+    dot.className = 'dot ' + (cs.running ? 'on' : 'off');
+    tb.innerHTML = `<span class="dot ${cs.running?'on':'off'}"></span> ${cs.running ? 'ตรวจอัตโนมัติ' : 'หยุดทำงาน'}`;
+    document.getElementById('sb-status').textContent = cs.running
+      ? `รอบถัดไป: ${cs.next_run ? new Date(cs.next_run).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}) : '...'}`
+      : 'ระบบอัตโนมัติ: ปิด';
+  } catch(e) {}
+}
+setInterval(pollGlobalStatus, 5000);
+pollGlobalStatus();
+
+// ─── PAGE: DASHBOARD ───────────────────────────────────────────────────────────
+async function dashboard() {
+  const el = document.getElementById('page-content');
+  el.innerHTML = `<div class="stats" id="stats-grid"><div class="stat"><div class="stat-label">กำลังโหลด...</div><div class="stat-value">—</div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+      <div class="card">
+        <div class="card-title">ออเดอร์ผิดเงื่อนไขล่าสุด</div>
+        <div id="dash-fail-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">สต็อกสินค้า</div>
+        <div id="dash-stock-list"></div>
+      </div>
+    </div>`;
+  const [stats, bl, prods] = await Promise.all([
+    get('/api/stats'), get('/api/blacklist?days=1'), get('/api/products')
+  ]);
+  document.getElementById('stats-grid').innerHTML = [
+    ['สต็อกคงเหลือ', fmt(stats.stock), ''],
+    ['ออเดอร์วันนี้', fmt(stats.orders_today), ''],
+    ['ผ่านเงื่อนไข',  fmt(stats.pass_today),  'color:var(--success)'],
+    ['ผิดเงื่อนไข',   fmt(stats.fail_today),   'color:var(--danger)'],
+    ['รอส่งซองเปล่า', fmt(stats.pending_send), 'color:var(--warning)'],
+    ['บัญชีดำ 30 วัน',fmt(stats.bl_active),    'color:var(--danger)'],
+  ].map(([l,v,s])=>`<div class="stat"><div class="stat-label">${l}</div><div class="stat-value" style="${s}">${v}</div></div>`).join('');
+
+  document.getElementById('dash-fail-list').innerHTML = !bl.length
+    ? '<div class="empty">ไม่มีรายการผิดเงื่อนไขวันนี้</div>'
+    : bl.slice(0,5).map(b=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div><div style="font-size:12.5px;font-weight:500">${escHtml(b.buyer_name)||'-'}</div>
+          <div style="font-size:11px;color:var(--text3)">${escHtml(b.order_sn)}</div></div>
+        ${vPill(b.violation)}</div>`).join('');
+
+  document.getElementById('dash-stock-list').innerHTML = prods.map(p => {
+    const pct = p.min_stock > 0 ? Math.min(100, Math.round(p.stock / p.min_stock * 100)) : 100;
+    const color = p.stock === 0 ? 'var(--danger)' : p.stock < p.min_stock ? 'var(--warning)' : 'var(--success)';
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+        <span>${escHtml(p.name)}</span><span style="font-weight:500;color:${color}">${p.stock} ชิ้น</span>
+      </div>
+      <div style="height:4px;background:var(--border);border-radius:2px">
+        <div style="height:4px;width:${pct}%;background:${color};border-radius:2px;transition:width .3s"></div>
+      </div></div>`;
+  }).join('');
+}
+
+// ─── PAGE: CHECKER ─────────────────────────────────────────────────────────────
+async function checker() {
+  const el = document.getElementById('page-content');
+  const [cs, auth, cfg] = await Promise.all([
+    get('/api/checker/status'), get('/api/auth/status'), get('/api/config')
+  ]);
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+      <div class="card">
+        <div class="card-title">สถานะระบบตรวจอัตโนมัติ</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem">
+          <span class="dot ${cs.running?'on':'off'}" style="width:12px;height:12px"></span>
+          <span style="font-size:15px;font-weight:500">${cs.running ? 'กำลังทำงาน' : 'หยุดทำงาน'}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.9;margin-bottom:1rem">
+          รอบล่าสุด: ${cs.last_run ? fmtDate(cs.last_run) : 'ยังไม่ได้รัน'}<br>
+          รอบถัดไป: ${cs.next_run ? fmtDate(cs.next_run) : '—'}<br>
+          ตรวจทุก: ${Math.round((cs.interval||300)/60)} นาที
+        </div>
+        <div class="form-group" style="margin-bottom:.75rem">
+          <label>ตรวจทุกกี่นาที</label>
+          <select id="ck-interval" style="width:120px">
+            <option value="120" ${cs.interval==120?'selected':''}>2 นาที</option>
+            <option value="300" ${cs.interval==300?'selected':''}>5 นาที</option>
+            <option value="600" ${cs.interval==600?'selected':''}>10 นาที</option>
+            <option value="900" ${cs.interval==900?'selected':''}>15 นาที</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          ${cs.running
+            ? `<button class="btn btn-danger" onclick="stopChecker()"><i class="ti ti-player-stop"></i> หยุดระบบ</button>`
+            : `<button class="btn btn-primary" onclick="startChecker()"><i class="ti ti-player-play"></i> เริ่มระบบ</button>`}
+          <button class="btn" onclick="runNow()"><i class="ti ti-refresh"></i> ตรวจเดี๋ยวนี้</button>
+        </div>
+        <div id="ck-msg" style="margin-top:.75rem"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">สถานะ Shopee API</div>
+        <div style="margin-bottom:1rem">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem">
+            <span class="dot ${auth.has_token && !auth.expired ? 'on' : 'off'}" style="width:10px;height:10px"></span>
+            <span style="font-size:13px">${auth.has_token && !auth.expired ? 'เชื่อมต่อแล้ว' : auth.has_token ? 'Token หมดอายุ' : 'ยังไม่ได้เชื่อมต่อ'}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2)">
+            Shop ID: <span style="font-family:var(--mono)">${cfg.shop_id || 'ยังไม่ได้ตั้งค่า'}</span><br>
+            Mode: <strong>${cfg.env === 'test' ? 'Test' : 'Live'}</strong><br>
+            ${auth.updated_at ? 'อัปเดตเมื่อ: '+fmtDate(new Date(auth.updated_at*1000).toISOString()) : ''}
+          </div>
+        </div>
+        ${!auth.has_token || auth.expired
+          ? `<button class="btn btn-primary" onclick="doAuthorize()" id="auth-btn"><i class="ti ti-link"></i> เชื่อมต่อ Shopee</button>
+             <div id="auth-msg" style="margin-top:.75rem"></div>`
+          : `<div class="alert alert-ok"><i class="ti ti-circle-check"></i> พร้อมดึงออเดอร์จาก Shopee แล้ว</div>`}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Log การทำงาน</div>
+      <div class="log-box" id="checker-log">${cs.log.length ? cs.log.map(l=>`<div>${escHtml(l)}</div>`).join('') : '<div style="color:var(--text3)">ยังไม่มี log...</div>'}</div>
+    </div>`;
+  // poll log
+  if (checkerPoll) clearInterval(checkerPoll);
+  checkerPoll = setInterval(async () => {
+    if (currentPage !== 'checker') { clearInterval(checkerPoll); return; }
+    const s = await get('/api/checker/status');
+    const logEl = document.getElementById('checker-log');
+    if (logEl) logEl.innerHTML = s.log.length ? s.log.map(l=>`<div>${escHtml(l)}</div>`).join('') : '<div style="color:var(--text3)">ยังไม่มี log...</div>';
+    pollGlobalStatus();
+  }, 3000);
+}
+
+async function startChecker() {
+  const interval = parseInt(document.getElementById('ck-interval').value) || 300;
+  const r = await post('/api/checker/start', {interval});
+  document.getElementById('ck-msg').innerHTML = `<div class="alert ${r.ok?'alert-ok':'alert-bad'}">${escHtml(r.msg)}</div>`;
+  if (r.ok) setTimeout(checker, 800);
+}
+async function stopChecker() {
+  await post('/api/checker/stop');
+  setTimeout(checker, 400);
+}
+async function runNow() {
+  const r = await post('/api/checker/run-now');
+  document.getElementById('ck-msg').innerHTML = `<div class="alert alert-info"><i class="ti ti-refresh"></i> ${escHtml(r.msg)}</div>`;
+}
+async function doAuthorize() {
+  document.getElementById('auth-btn').disabled = true;
+  document.getElementById('auth-msg').innerHTML = `<div class="alert alert-info"><i class="ti ti-loader"></i> กำลังเปิด browser...</div>`;
+  await post('/api/auth/authorize');
+  let tries = 0;
+  const poll = setInterval(async () => {
+    tries++;
+    const r = await get('/api/auth/result');
+    if (!r || r.pending) { if (tries > 120) clearInterval(poll); return; }
+    clearInterval(poll);
+    document.getElementById('auth-msg').innerHTML = `<div class="alert ${r.ok?'alert-ok':'alert-bad'}">${escHtml(r.msg)}</div>`;
+    if (r.ok) setTimeout(checker, 1000);
+  }, 1000);
+}
+
+// ─── PAGE: BLACKLIST ───────────────────────────────────────────────────────────
+async function blacklist() {
+  const el = document.getElementById('page-content');
+  el.innerHTML = `<div class="card">
+    <div class="card-title">
+      บัญชีดำ — ผิดเงื่อนไข 1 ซิม/คน
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="window-badge"><i class="ti ti-clock"></i> 30 วันล่าสุด</span>
+        <button class="btn btn-sm" onclick="blacklist()"><i class="ti ti-refresh"></i></button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <input type="text" id="bl-q" placeholder="ค้นหา ออเดอร์ / ชื่อ / User ID..." oninput="loadBL()">
+      <select id="bl-type" onchange="loadBL()">
+        <option value="">ทุกประเภท</option>
+        <option value="qty">จำนวนเกิน</option>
+        <option value="user">ซ้ำ User</option>
+        <option value="name">ซ้ำชื่อ</option>
+        <option value="addr">ซ้ำที่อยู่</option>
+        <option value="multi">หลายเงื่อนไข</option>
+      </select>
+      <select id="bl-sent" onchange="loadBL()">
+        <option value="">ทุกสถานะ</option>
+        <option value="pending">รอส่งซองเปล่า</option>
+        <option value="sent">ส่งแล้ว</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:120px">ออเดอร์</th>
+          <th style="width:110px">ชื่อ</th>
+          <th style="width:90px">User ID</th>
+          <th style="width:65px">ประเภท</th>
+          <th style="width:65px">สถานะ</th>
+          <th style="width:60px">อายุ</th>
+          <th style="width:90px">วันที่</th>
+          <th style="width:90px">จัดการ</th>
+        </tr></thead>
+        <tbody id="bl-tbody"></tbody>
+      </table>
+    </div>
+  </div>`;
+  await loadBL();
+}
+
+async function loadBL() {
+  const q  = document.getElementById('bl-q')?.value || '';
+  const vt = document.getElementById('bl-type')?.value || '';
+  const st = document.getElementById('bl-sent')?.value || '';
+  const rows = await get(`/api/blacklist?days=30&q=${encodeURIComponent(q)}&type=${vt}&sent=${st}`);
+  const tb = document.getElementById('bl-tbody');
+  if (!tb) return;
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">ไม่พบข้อมูลใน 30 วัน</td></tr>'; return; }
+  tb.innerHTML = rows.map(b => `<tr>
+    <td title="${escHtml(b.order_sn)}" style="font-family:var(--mono);font-size:11px">${escHtml(b.order_sn)}</td>
+    <td title="${escHtml(b.buyer_name)}">${escHtml(b.buyer_name)||'-'}</td>
+    <td style="font-family:var(--mono);font-size:11px">${escHtml(b.user_id)||'-'}</td>
+    <td>${vPill(b.violation)}</td>
+    <td>${b.sent_empty ? '<span class="pill pill-gray">ส่งแล้ว</span>' : '<span class="pill pill-amber">รอส่ง</span>'}</td>
+    <td>${agePill(b.age_days)}</td>
+    <td style="font-size:11px;color:var(--text3)">${fmtDate(b.created_at)}</td>
+    <td>
+      ${!b.sent_empty ? `<button class="btn btn-sm btn-warning" onclick="markSent(${b.id})"><i class="ti ti-mail"></i></button>` : ''}
+      <button class="btn btn-sm btn-danger" style="margin-left:3px" onclick="delBL(${b.id})"><i class="ti ti-trash"></i></button>
+    </td>
+  </tr>`).join('');
+}
+
+async function markSent(id) {
+  await post(`/api/blacklist/${id}/sent`);
+  loadBL();
+}
+async function delBL(id) {
+  if (!confirm('ลบออกจากบัญชีดำ?')) return;
+  await del(`/api/blacklist/${id}`);
+  loadBL();
+}
+
+// ─── PAGE: ORDERS ──────────────────────────────────────────────────────────────
+async function orders() {
+  const el = document.getElementById('page-content');
+  el.innerHTML = `<div class="card">
+    <div class="card-title">ประวัติออเดอร์ทั้งหมด</div>
+    <div class="toolbar">
+      <input type="text" id="or-q" placeholder="ค้นหา..." oninput="loadOrders()">
+      <select id="or-status" onchange="loadOrders()">
+        <option value="">ทุกสถานะ</option>
+        <option value="pass">ผ่านเงื่อนไข</option>
+        <option value="fail">ผิดเงื่อนไข</option>
+      </select>
+      <select id="or-days" onchange="loadOrders()">
+        <option value="1">วันนี้</option>
+        <option value="7" selected>7 วัน</option>
+        <option value="30">30 วัน</option>
+        <option value="0">ทั้งหมด</option>
+      </select>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:130px">ออเดอร์</th>
+        <th style="width:110px">ชื่อ</th>
+        <th style="width:85px">User ID</th>
+        <th style="width:35px">จำนวน</th>
+        <th style="width:70px">สถานะ</th>
+        <th style="width:90px">วันที่/เวลา</th>
+        <th>สาเหตุ</th>
+      </tr></thead>
+      <tbody id="or-tbody"></tbody>
+    </table></div>
+  </div>`;
+  await loadOrders();
+}
+
+async function loadOrders() {
+  const q    = document.getElementById('or-q')?.value || '';
+  const st   = document.getElementById('or-status')?.value || '';
+  const days = document.getElementById('or-days')?.value || '7';
+  const rows = await get(`/api/orders?q=${encodeURIComponent(q)}&status=${st}&days=${days}`);
+  const tb = document.getElementById('or-tbody');
+  if (!tb) return;
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">ไม่พบข้อมูล</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => `<tr>
+    <td style="font-family:var(--mono);font-size:11px" title="${escHtml(r.order_sn)}">${escHtml(r.order_sn)}</td>
+    <td title="${escHtml(r.buyer_name)}">${escHtml(r.buyer_name)||'-'}</td>
+    <td style="font-family:var(--mono);font-size:11px">${escHtml(r.user_id)||'-'}</td>
+    <td style="text-align:center">${r.qty}</td>
+    <td>${r.status==='pass' ? '<span class="pill pill-green">ผ่าน</span>' : '<span class="pill pill-red">ผิดเงื่อนไข</span>'}</td>
+    <td style="font-size:11px;color:var(--text3)">${fmtDate(r.checked_at)}</td>
+    <td style="font-size:11px;color:var(--text2)" title="${escHtml((r.reasons||[]).join(' / '))}">${escHtml((r.reasons||[]).join(' / '))||'-'}</td>
+  </tr>`).join('');
+}
+
+// ─── PAGE: SUMMARY ─────────────────────────────────────────────────────────────
+async function summary() {
+  const el = document.getElementById('page-content');
+  el.innerHTML = `<div class="card" id="sum-card">
+    <div class="card-title">
+      ใบสรุปออเดอร์วันนี้
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="copySummary()"><i class="ti ti-copy"></i> คัดลอก</button>
+        <button class="btn btn-sm" onclick="printSummary()"><i class="ti ti-printer"></i> พิมพ์</button>
+        <button class="btn btn-sm" onclick="summary()"><i class="ti ti-refresh"></i></button>
+      </div>
+    </div>
+    <div class="summary-box" id="sum-text">กำลังโหลด...</div>
+  </div>
+  <div class="card">
+    <div class="card-title">รายการรอส่งซองเปล่า</div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:130px">ออเดอร์</th>
+        <th style="width:120px">ชื่อ</th>
+        <th style="width:90px">User ID</th>
+        <th style="width:80px">ประเภท</th>
+        <th style="width:75px">สถานะ</th>
+        <th style="width:90px">จัดการ</th>
+      </tr></thead>
+      <tbody id="sum-bl"></tbody>
+    </table></div>
+  </div>`;
+  const [s, bl] = await Promise.all([get('/api/summary'), get('/api/blacklist?days=1&sent=pending')]);
+  document.getElementById('sum-text').textContent = s.text;
+  const tb = document.getElementById('sum-bl');
+  if (!bl.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">ไม่มีรายการรอส่งซองเปล่า</td></tr>'; return; }
+  tb.innerHTML = bl.map(b => `<tr>
+    <td style="font-family:var(--mono);font-size:11px">${escHtml(b.order_sn)}</td>
+    <td>${escHtml(b.buyer_name)||'-'}</td>
+    <td style="font-family:var(--mono);font-size:11px">${escHtml(b.user_id)||'-'}</td>
+    <td>${vPill(b.violation)}</td>
+    <td><span class="pill pill-amber">รอส่ง</span></td>
+    <td><button class="btn btn-sm btn-warning" onclick="markSentSum(${b.id})"><i class="ti ti-mail"></i> ส่งแล้ว</button></td>
+  </tr>`).join('');
+}
+
+let _sumText = '';
+async function copySummary() {
+  const t = document.getElementById('sum-text')?.textContent || '';
+  await navigator.clipboard.writeText(t);
+  alert('คัดลอกใบสรุปแล้ว');
+}
+async function printSummary() {
+  const t = document.getElementById('sum-text')?.textContent || '';
+  const w = window.open('','_blank','width=620,height=700');
+  w.document.write(`<html><body><pre style="font:13px/1.85 monospace;padding:1.5rem">${escHtml(t)}</pre><script>window.print();<\/script></body></html>`);
+  w.document.close();
+}
+async function markSentSum(id) {
+  await post(`/api/blacklist/${id}/sent`);
+  summary();
+}
+
+// ─── PAGE: STOCK ───────────────────────────────────────────────────────────────
+async function stock() {
+  const el = document.getElementById('page-content');
+  el.innerHTML = `<div class="card">
+    <div class="card-title">
+      สต็อกซิมเปล่า
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-primary" onclick="showAddStock()"><i class="ti ti-plus"></i> เพิ่มสินค้า</button>
+        <button class="btn btn-sm" onclick="stock()"><i class="ti ti-refresh"></i> รีเฟรช</button>
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:40%">ชื่อสินค้า</th>
+        <th style="width:20%">Item ID</th>
+        <th style="width:10%">สต็อก</th>
+        <th style="width:10%">แจ้งเตือน</th>
+        <th style="width:10%">ราคา</th>
+        <th style="width:10%">สถานะ</th>
+      </tr></thead>
+      <tbody id="st-tbody"></tbody>
+    </table></div>
+  </div>
+  <div class="card" id="add-stock-form" style="display:none">
+    <div class="card-title">เพิ่มสินค้าใหม่</div>
+    <div class="form-grid">
+      <div class="form-group" style="grid-column:span 2"><label>ชื่อสินค้า</label><input type="text" id="st-name" placeholder="ชื่อสินค้า"></div>
+      <div class="form-group"><label>Shopee Item ID</label><input type="text" id="st-iid" placeholder="7891234560"></div>
+      <div class="form-group"><label>ราคา (฿)</label><input type="number" id="st-price" placeholder="0" min="0"></div>
+      <div class="form-group"><label>สต็อกเริ่มต้น</label><input type="number" id="st-stock" placeholder="0" min="0"></div>
+      <div class="form-group"><label>แจ้งเตือนเมื่อต่ำกว่า</label><input type="number" id="st-min" placeholder="10" min="0"></div>
+    </div>
+    <div style="display:flex;gap:7px;margin-top:.6rem">
+      <button class="btn btn-primary" onclick="addProduct()"><i class="ti ti-check"></i> บันทึก</button>
+      <button class="btn" onclick="document.getElementById('add-stock-form').style.display='none'"><i class="ti ti-x"></i> ยกเลิก</button>
+    </div>
+  </div>`;
+  await loadStock();
+}
+
+async function loadStock() {
+  const prods = await get('/api/products');
+  const tb = document.getElementById('st-tbody');
+  if (!tb) return;
+  if (!prods.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">ยังไม่มีสินค้า</td></tr>'; return; }
+  tb.innerHTML = prods.map(p => {
+    const s = p.stock === 0 ? ['pill-red','หมด'] : p.stock < p.min_stock ? ['pill-amber','สต็อกต่ำ'] : ['pill-green','ปกติ'];
+    return `<tr>
+      <td>${escHtml(p.name)}</td>
+      <td style="font-family:var(--mono);font-size:11px">${escHtml(p.item_id)}</td>
+      <td><span style="font-weight:500">${p.stock}</span></td>
+      <td>${p.min_stock}</td>
+      <td>฿${p.price}</td>
+      <td><span class="pill ${s[0]}">${s[1]}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function showAddStock() { document.getElementById('add-stock-form').style.display = ''; }
+async function addProduct() {
+  const d = {
+    item_id: document.getElementById('st-iid').value.trim(),
+    name:    document.getElementById('st-name').value.trim(),
+    stock:   parseInt(document.getElementById('st-stock').value) || 0,
+    min_stock: parseInt(document.getElementById('st-min').value) || 10,
+    price:   parseFloat(document.getElementById('st-price').value) || 0,
+  };
+  if (!d.item_id || !d.name) { alert('กรุณากรอกชื่อและ Item ID'); return; }
+  await post('/api/products', d);
+  document.getElementById('add-stock-form').style.display = 'none';
+  ['st-name','st-iid','st-price','st-stock','st-min'].forEach(id => document.getElementById(id).value = '');
+  await loadStock();
+}
+
+// ─── PAGE: SETTINGS ────────────────────────────────────────────────────────────
+async function settings() {
+  const el = document.getElementById('page-content');
+  const cfg = await get('/api/config');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">การตั้งค่า Shopee API</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Shop ID</label>
+          <input type="text" id="cfg-shop" value="${cfg.shop_id||''}" placeholder="เช่น 123456789">
+        </div>
+        <div class="form-group">
+          <label>โหมด API</label>
+          <select id="cfg-env">
+            <option value="live" ${cfg.env!=='test'?'selected':''}>Live (ร้านจริง)</option>
+            <option value="test" ${cfg.env==='test'?'selected':''}>Test (ทดสอบ)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>ตรวจออเดอร์ทุกกี่นาที</label>
+          <select id="cfg-interval">
+            <option value="120" ${cfg.interval==120?'selected':''}>2 นาที</option>
+            <option value="300" ${cfg.interval==300?'selected':''}>5 นาที</option>
+            <option value="600" ${cfg.interval==600?'selected':''}>10 นาที</option>
+            <option value="900" ${cfg.interval==900?'selected':''}>15 นาที</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:.6rem" onclick="saveConfig()"><i class="ti ti-check"></i> บันทึกการตั้งค่า</button>
+      <div id="cfg-msg" style="margin-top:.75rem"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">ข้อมูล Partner</div>
+      <div style="font-size:12.5px;line-height:2;color:var(--text2)">
+        <div><strong>Live Partner ID:</strong> <span style="font-family:var(--mono)">2037264</span></div>
+        <div><strong>Test Partner ID:</strong> <span style="font-family:var(--mono)">1236318</span></div>
+        <div style="margin-top:.5rem;color:var(--text3);font-size:11.5px">Partner Key เก็บในระบบเรียบร้อยแล้ว ไม่จำเป็นต้องกรอกใหม่</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">เกี่ยวกับระบบ</div>
+      <div style="font-size:12.5px;color:var(--text2);line-height:2">
+        <div><i class="ti ti-clock" style="font-size:13px"></i> ตรวจสอบย้อนหลัง: <strong>30 วัน</strong></div>
+        <div><i class="ti ti-database" style="font-size:13px"></i> ฐานข้อมูล: SQLite (data.db)</div>
+        <div><i class="ti ti-shield-check" style="font-size:13px"></i> เงื่อนไข: 1 User / 1 ชื่อ / 1 ที่อยู่ = 1 ซิม</div>
+      </div>
+    </div>`;
+}
+
+async function saveConfig() {
+  const d = {
+    shop_id:  parseInt(document.getElementById('cfg-shop').value) || 0,
+    env:      document.getElementById('cfg-env').value,
+    interval: parseInt(document.getElementById('cfg-interval').value) || 300,
+  };
+  const r = await post('/api/config', d);
+  document.getElementById('cfg-msg').innerHTML = `<div class="alert alert-ok"><i class="ti ti-check"></i> บันทึกแล้ว</div>`;
+  setTimeout(() => {
+    const el = document.getElementById('cfg-msg');
+    if (el) el.innerHTML = '';
+  }, 2500);
+  pollGlobalStatus();
+}
+
+// ─── INIT ──────────────────────────────────────────────────────────────────────
+navigate('dashboard');
+</script>
+</body>
+</html>
