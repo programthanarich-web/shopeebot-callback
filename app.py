@@ -302,7 +302,7 @@ def do_authorize():
             if code:
                 code_holder["code"] = code
                 self.send_response(200); self.end_headers()
-                self.wfile.write(b"<html><body><h2>Authorization สำเร็จ!</h2><p>ปิดหน้าต่างนี้ได้เลย</p></body></html>")
+                self.wfile.write("<html><body><h2>Authorization success!</h2><p>Close this window.</p></body></html>".encode())
                 event.set()
             else: self.send_response(400); self.end_headers()
         def log_message(self,*a): pass
@@ -486,12 +486,12 @@ def get_summary():
     if passed:
         lines.append(f"----- จัดส่งซิม ({len(passed)} ออเดอร์) -----")
         for i,r in enumerate(passed,1):
-            lines+=[f"{i}. ออเดอร์: {r['order_sn']}",f"   ชื่อ: {r['buyer_name']|'-'} | User: {r['user_id']|'-'}",f"   เบอร์: {r['phone']|'-'}",f"   ที่อยู่: {r['address']|'-'}",f"   จำนวน: {r['qty']} ชิ้น",""]
+            lines+=[f"{i}. ออเดอร์: {r['order_sn']}",f"   ชื่อ: {(r['buyer_name'] or '-')} | User: {(r['user_id'] or '-')}",f"   เบอร์: {(r['phone'] or '-')}",f"   ที่อยู่: {(r['address'] or '-')}",f"   จำนวน: {r['qty']} ชิ้น",""]
     if failed:
         lines.append(f"----- ส่งซองเปล่า ({len(failed)} ออเดอร์) -----")
         for i,r in enumerate(failed,1):
             reasons=" / ".join(json.loads(r["reasons"] or "[]"))
-            lines+=[f"{i}. ออเดอร์: {r['order_sn']}",f"   ชื่อ: {r['buyer_name']|'-'} | User: {r['user_id']|'-'}",f"   เบอร์: {r['phone']|'-'}",f"   ที่อยู่: {r['address']|'-'}",f"   สาเหตุ: {reasons}",""]
+            lines+=[f"{i}. ออเดอร์: {r['order_sn']}",f"   ชื่อ: {(r['buyer_name'] or '-')} | User: {(r['user_id'] or '-')}",f"   เบอร์: {(r['phone'] or '-')}",f"   ที่อยู่: {(r['address'] or '-')}",f"   สาเหตุ: {reasons}",""]
     lines.append("==============================")
     return jsonify({"text":"\n".join(lines),"passed":len(passed),"failed":len(failed)})
 
@@ -505,6 +505,12 @@ def db_status():
 
 # ─── INIT ─────────────────────────────────────────────────────────────────────
 init_db()
+
+# init DB on startup (gunicorn)
+try:
+    init_db()
+except Exception as _e:
+    print(f"init_db warning: {_e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
