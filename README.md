@@ -1,63 +1,36 @@
-# Shopee Sim Manager — วิธีเริ่มต้นใช้งาน
+# Shopee Sim Manager — Deploy Guide
 
-## ขั้นตอนที่ 1 — ใส่ Shop ID
+## Stack
+- **Backend**: Flask + PostgreSQL (Supabase)
+- **Host**: Render (ฟรีถาวร)
+- **DB**: Supabase (ฟรีถาวร 500MB)
 
-เปิดไฟล์ `setup_token.py` บรรทัดที่ 12:
-```python
-SHOP_ID = 0   # ← เปลี่ยนเป็น Shop ID ของร้าน เช่น 123456789
-```
+## ขั้นตอน Deploy
 
-**หา Shop ID ได้จาก:** Shopee Seller Center → คลิกชื่อร้าน → ดูในหน้าตั้งค่าร้าน
-หรือดูจาก URL: `seller.shopee.co.th/portal/shop/`**123456789**`/`
+### 1. สร้างฐานข้อมูล Supabase (ฟรี)
+1. ไปที่ [supabase.com](https://supabase.com) → Sign in with GitHub
+2. กด **New Project** → ตั้งชื่อ `sim-manager` → ตั้ง password → Create
+3. รอ 1-2 นาที → ไปที่ **Settings → Database**
+4. คัดลอก **Connection string (URI)** → เก็บไว้ใช้ใน Render
 
----
+### 2. Deploy บน Render (ฟรี)
+1. ไปที่ [render.com](https://render.com) → Sign in with GitHub
+2. กด **New → Web Service**
+3. เลือก repo `programthanarich-web/shopeebot-callback`
+4. ตั้งค่า:
+   - Name: `shopee-sim-manager`
+   - Runtime: `Python 3`
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120`
+5. Environment Variables → เพิ่ม:
+   - `DATABASE_URL` = (connection string จาก Supabase)
+6. กด **Create Web Service** → รอ build เสร็จ
 
-## ขั้นตอนที่ 2 — เริ่มต้นใช้งาน
+### 3. เปิดใช้งาน
+- เปิด URL ที่ได้จาก Render เช่น `https://shopee-sim-manager.onrender.com`
+- ไปที่ **ตั้งค่า** → ใส่ Shop ID และ Access Token
 
-### Windows
-ดับเบิลคลิกที่ไฟล์:
-```
-เริ่มต้นใช้งาน_Windows.bat
-```
-
-### Mac / Linux
-```bash
-chmod +x เริ่มต้นใช้งาน_Mac_Linux.sh
-./เริ่มต้นใช้งาน_Mac_Linux.sh
-```
-
-ระบบจะ:
-1. ติดตั้ง dependencies อัตโนมัติ
-2. เปิด browser ให้กด Authorize กับ Shopee (ทำครั้งเดียว)
-3. เปิดเว็บแอพที่ http://localhost:5000
-
----
-
-## ขั้นตอนที่ 3 — ใช้งาน
-
-1. ไปที่หน้า **ระบบตรวจอัตโนมัติ** → กด **เริ่มระบบ**
-2. ระบบจะดึงออเดอร์ใหม่จาก Shopee ตรวจสอบเงื่อนไขและบันทึกบัญชีดำให้อัตโนมัติ
-
----
-
-## รันครั้งต่อไป (มี token แล้ว)
-
-### Windows
-```bash
-python app.py
-```
-### Mac/Linux
-```bash
-python3 app.py
-```
-แล้วเปิด http://localhost:5000
-
----
-
-## ไฟล์สำคัญ
-| ไฟล์ | หน้าที่ |
-|------|--------|
-| `setup_token.py` | ขอ Shopee token (รันครั้งแรกครั้งเดียว) |
-| `app.py` | Web server หลัก |
-| `tokens.json` | Token ที่ได้ (สร้างอัตโนมัติ) |
-| `data.db` | ฐานข้อมูล SQLite |
+## หมายเหตุ
+- Render ฟรี: app จะ sleep เมื่อไม่มีการใช้งาน 15 นาที (ตื่นใน ~30 วินาที)
+- ข้อมูลทั้งหมดเก็บใน Supabase PostgreSQL — **ไม่หายแม้ restart**
+- Supabase ฟรี: 500MB, 2 projects
