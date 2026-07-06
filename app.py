@@ -31,9 +31,11 @@ REDIRECT_PORT    = 8899
 WINDOW_DAYS      = 30
 
 BASE_DIR   = Path(__file__).parent
-DB_PATH    = BASE_DIR / "data.db"
-TOKEN_PATH = BASE_DIR / "tokens.json"
-CFG_PATH   = BASE_DIR / "config.json"
+import os
+_DATA_DIR  = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
+DB_PATH    = _DATA_DIR / "data.db"
+TOKEN_PATH = _DATA_DIR / "tokens.json"
+CFG_PATH   = _DATA_DIR / "config.json"
 
 # in-memory auto-check state
 checker_state = {"running": False, "last_run": None, "next_run": None, "interval": 300, "log": []}
@@ -639,8 +641,9 @@ def get_summary():
 
 if __name__ == "__main__":
     init_db()
+    port = int(os.environ.get("PORT", 5000))
     print("="*55)
-    print("  Shopee Sim Manager — Web App")
-    print("  เปิดเบราว์เซอร์: http://localhost:5000")
+    print(f"  Shopee Sim Manager — Web App")
+    print(f"  เปิดเบราว์เซอร์: http://localhost:{port}")
     print("="*55)
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
