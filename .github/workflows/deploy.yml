@@ -12,21 +12,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: '3.11'
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      - name: Write Service Account
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/sa.json
-
-      - name: Deploy to Firebase
+      - name: Deploy to Firebase Hosting + Functions
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only hosting,functions
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
-        run: |
-          firebase deploy \
-            --project shopee-sim-manager \
-            --non-interactive
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROJECT_ID: shopee-sim-manager
