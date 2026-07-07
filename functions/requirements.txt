@@ -1,5 +1,5 @@
+firebase-functions==0.1.0
+firebase-admin==6.5.0
 flask==3.0.3
 flask-cors==4.0.1
 requests==2.31.0
-gunicorn==22.0.0
-psycopg2-binary==2.9.9
