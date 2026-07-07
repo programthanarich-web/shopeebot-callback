@@ -13,8 +13,11 @@
       }
     ]
   },
-  "functions": {
-    "source": "functions",
-    "runtime": "python311"
-  }
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": ["venv", ".git", "*.pyc", "__pycache__"]
+    }
+  ]
 }
