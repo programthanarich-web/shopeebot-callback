@@ -3,7 +3,7 @@ name: Deploy to Firebase
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # กดปุ่ม deploy เองได้ใน GitHub
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -17,21 +17,16 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      - name: Install Python dependencies
-        run: |
-          cd functions
-          pip install -r requirements.txt
+      - name: Write Service Account
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/sa.json
 
       - name: Deploy to Firebase
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
         run: |
-          firebase deploy --token "$FIREBASE_TOKEN" --non-interactive
+          firebase deploy \
+            --project shopee-sim-manager \
+            --non-interactive
