@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Shopee Stock Sync</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e);min-height:100vh;font-family:"Noto Sans Thai",Sarabun,sans-serif;color:white}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:rgba(167,139,250,0.3);border-radius:2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback}=React;
+
+// ไม่มีความลับใดๆ อยู่ในไฟล์นี้ - Worker URL กับ Access Key ผู้ใช้กรอกเองแล้วเก็บไว้
+// ใน localStorage ของเบราว์เซอร์ตัวเอง (ไม่ได้ commit ขึ้น GitHub)
+const LS_WORKER_URL = "shopee_worker_url";
+const LS_ACCESS_KEY = "shopee_access_key";
+
+const C={
+  card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:16,margin:"12px 12px 0"},
+  h3:{color:"#e2e8f0",fontSize:15,fontWeight:700,marginBottom:12},
+  inp:{width:"100%",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"10px 14px",color:"white",fontSize:14,outline:"none"},
+  btnP:{background:"linear-gradient(135deg,#4f46e5,#7c3aed)",border:"none",borderRadius:10,padding:"10px 18px",color:"white",fontWeight:700,cursor:"pointer",fontSize:14},
+  btnS:{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"10px 14px",color:"#e2e8f0",fontWeight:600,cursor:"pointer",fontSize:13},
+  th:{padding:"8px 10px",background:"rgba(255,255,255,0.06)",color:"#94a3b8",fontSize:12,fontWeight:600,textAlign:"left",borderBottom:"1px solid rgba(255,255,255,0.08)"},
+  td:{padding:"10px",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#e2e8f0",fontSize:13},
+  label:{color:"#94a3b8",fontSize:12,fontWeight:600,marginBottom:6,display:"block"},
+};
+
+const fmtT=ts=>ts?new Date(ts).toLocaleString("th-TH"):"-";
+const lsG=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+const lsS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+
+function Toast({toast}){
+  if(!toast)return null;
+  return(
+    <div style={{position:"fixed",top:20,right:16,zIndex:9999,background:toast.type==="err"?"#dc2626":toast.type==="warn"?"#d97706":"#059669",color:"white",padding:"10px 18px",borderRadius:12,fontWeight:600,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,0.4)",maxWidth:320}}>{toast.msg}</div>
+  );
+}
+
+// ---------- ขั้นตอนตั้งค่าการเชื่อมต่อ Worker (ทำครั้งเดียวต่อเบราว์เซอร์) ----------
+function WorkerSetup({onReady}){
+  const [workerUrl,setWorkerUrl]=useState(lsG(LS_WORKER_URL)||"");
+  const [accessKey,setAccessKey]=useState(lsG(LS_ACCESS_KEY)||"");
+
+  const save=()=>{
+    if(!workerUrl){alert("กรุณาใส่ Worker URL");return;}
+    lsS(LS_WORKER_URL,workerUrl.replace(/\/$/,""));
+    lsS(LS_ACCESS_KEY,accessKey);
+    onReady();
+  };
+
+  return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{...C.card,margin:0,maxWidth:420,width:"100%"}}>
+        <div style={C.h3}>🛒 ตั้งค่าการเชื่อมต่อ (ทำครั้งเดียว)</div>
+        <div style={{fontSize:12,color:"#8b8fa8",marginBottom:14}}>ใส่ URL ของ Cloudflare Worker และรหัสผ่านที่ตั้งไว้ตอน deploy</div>
+        <label style={C.label}>Worker URL</label>
+        <input style={C.inp} value={workerUrl} onChange={e=>setWorkerUrl(e.target.value)} placeholder="https://shopee-stock-sync.xxxx.workers.dev"/>
+        <label style={{...C.label,marginTop:10}}>Access Key</label>
+        <input style={C.inp} type="password" value={accessKey} onChange={e=>setAccessKey(e.target.value)} placeholder="รหัสผ่านที่ตั้งไว้ (ACCESS_KEY)"/>
+        <button style={{...C.btnP,marginTop:14,width:"100%"}} onClick={save}>บันทึกและเข้าใช้งาน</button>
+      </div>
+    </div>
+  );
+}
+
+function ConnectCard({status,onConnected,t3,api}){
+  const [authUrl,setAuthUrl]=useState("");
+  const [code,setCode]=useState("");
+  const [shopId,setShopId]=useState("");
+  const [busy,setBusy]=useState(false);
+
+  const startAuth=async()=>{
+    const res=await api("/auth-url");
+    if(res.error){t3(res.error,"err");return;}
+    setAuthUrl(res.url);
+    window.open(res.url,"_blank");
+  };
+
+  const confirm=async()=>{
+    if(!code||!shopId){t3("กรุณาใส่ code และ shop_id ให้ครบ","warn");return;}
+    setBusy(true);
+    const res=await api("/auth-confirm",{method:"POST",body:JSON.stringify({code,shopId})});
+    setBusy(false);
+    if(res.error){t3("เชื่อมต่อล้มเหลว: "+res.error,"err");return;}
+    t3("✅ เชื่อมต่อร้านสำเร็จ");
+    onConnected();
+  };
+
+  if(status.connected)return null;
+
+  return(
+    <div style={C.card}>
+      <div style={C.h3}>🔗 ขั้นตอนที่ 1 — เชื่อมต่อร้าน Shopee</div>
+      <button style={C.btnP} onClick={startAuth}>เชื่อมต่อร้าน Shopee</button>
+      {authUrl&&<div style={{fontSize:11,color:"#8b8fa8",marginTop:8,wordBreak:"break-all"}}>ถ้าไม่เด้งอัตโนมัติ เปิดเอง: <a href={authUrl} target="_blank" style={{color:"#a78bfa"}}>{authUrl}</a></div>}
+
+      <div style={{marginTop:14}}>
+        <label style={C.label}>code จาก URL ที่เด้งกลับมา</label>
+        <input style={C.inp} value={code} onChange={e=>setCode(e.target.value)} placeholder="code"/>
+      </div>
+      <div style={{marginTop:10}}>
+        <label style={C.label}>shop_id จาก URL ที่เด้งกลับมา</label>
+        <input style={C.inp} value={shopId} onChange={e=>setShopId(e.target.value)} placeholder="shop_id"/>
+      </div>
+      <button style={{...C.btnP,marginTop:12,opacity:busy?0.6:1}} disabled={busy} onClick={confirm}>{busy?"กำลังเชื่อมต่อ...":"ยืนยันการเชื่อมต่อ"}</button>
+    </div>
+  );
+}
+
+function StockTab({status,refreshStatus,t3,pushLocalHistory,api}){
+  const [sku,setSku]=useState("");
+  const [qty,setQty]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [mapBusy,setMapBusy]=useState(false);
+
+  const rebuildMap=async()=>{
+    setMapBusy(true);
+    t3("กำลังดึงรายชื่อสินค้า...");
+    const res=await api("/rebuild-map",{method:"POST"});
+    setMapBusy(false);
+    if(res.error){t3("ผิดพลาด: "+res.error,"err");return;}
+    t3("✅ ดึงรายชื่อสินค้าสำเร็จ: "+res.skuCount+" SKU");
+    refreshStatus();
+  };
+
+  const updateOne=async()=>{
+    if(!sku||qty===""){t3("กรุณาใส่ SKU และจำนวน","warn");return;}
+    setBusy(true);
+    const res=await api("/update-one",{method:"POST",body:JSON.stringify({sku,qty})});
+    setBusy(false);
+    if(res.ok){t3("✅ "+sku+" -> "+qty+" สำเร็จ");}
+    else{t3("✗ "+sku+" ล้มเหลว: "+res.error,"err");}
+    pushLocalHistory();
+    setSku("");setQty("");
+  };
+
+  return(
+    <React.Fragment>
+      <div style={C.card}>
+        <div style={C.h3}>📦 ดึงรายชื่อสินค้าจากร้าน</div>
+        <div style={{fontSize:12,color:"#8b8fa8",marginBottom:10}}>ทำทุกครั้งที่มีการเพิ่ม/แก้ไขสินค้าในร้าน เพื่ออัปเดตตาราง SKU (ตอนนี้มี {status.skuCount} SKU)</div>
+        <button style={{...C.btnS,opacity:mapBusy?0.6:1}} disabled={mapBusy} onClick={rebuildMap}>{mapBusy?"กำลังดึง...":"ดึงรายชื่อสินค้า"}</button>
+      </div>
+
+      <div style={C.card}>
+        <div style={C.h3}>✏️ ปรับสต๊อกทีละ SKU</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:140}}>
+            <label style={C.label}>SKU</label>
+            <input style={C.inp} value={sku} onChange={e=>setSku(e.target.value)} placeholder="เช่น SKU001"/>
+          </div>
+          <div style={{flex:1,minWidth:100}}>
+            <label style={C.label}>จำนวนใหม่</label>
+            <input style={C.inp} type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="50"/>
+          </div>
+        </div>
+        <button style={{...C.btnP,marginTop:12,opacity:busy?0.6:1}} disabled={busy} onClick={updateOne}>{busy?"กำลังปรับ...":"ปรับสต๊อก"}</button>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function BulkTab({t3,pushLocalHistory,api}){
+  const [text,setText]=useState("");
+  const [busy,setBusy]=useState(false);
+
+  const run=async()=>{
+    const rows=text.trim().split("\n").map(line=>{
+      const [sku,qty]=line.split(",").map(s=>s&&s.trim());
+      return{sku,qty};
+    }).filter(r=>r.sku);
+    if(rows.length===0){t3("กรุณาวางข้อมูลก่อน","warn");return;}
+    if(rows.length>50){t3("ต่อครั้งไม่ควรเกิน 50 รายการ (ข้อจำกัดเวลาของ Worker ฟรี) แบ่งเป็นหลายรอบ","warn");return;}
+    setBusy(true);
+    t3("กำลังปรับสต๊อก "+rows.length+" รายการ...");
+    const res=await api("/update-bulk",{method:"POST",body:JSON.stringify({rows})});
+    setBusy(false);
+    const ok=res.results.filter(r=>r.ok).length;
+    const fail=res.results.length-ok;
+    t3("เสร็จสิ้น: สำเร็จ "+ok+" ล้มเหลว "+fail,fail>0?"warn":"ok");
+    pushLocalHistory();
+    setText("");
+  };
+
+  return(
+    <div style={C.card}>
+      <div style={C.h3}>📋 ปรับสต๊อกหลายรายการพร้อมกัน</div>
+      <div style={{fontSize:12,color:"#8b8fa8",marginBottom:8}}>วางทีละบรรทัด รูปแบบ <code>sku,จำนวน</code> (สูงสุด 50 รายการต่อครั้ง)</div>
+      <textarea style={{...C.inp,minHeight:140,fontFamily:"monospace",resize:"vertical"}} value={text} onChange={e=>setText(e.target.value)} placeholder={"SKU001,120\nSKU002,0\nSKU003-RED,45"}/>
+      <button style={{...C.btnP,marginTop:12,opacity:busy?0.6:1}} disabled={busy} onClick={run}>{busy?"กำลังปรับ...":"ปรับสต๊อกทั้งหมด"}</button>
+    </div>
+  );
+}
+
+function HistoryTab({history}){
+  if(history.length===0){
+    return <div style={C.card}><div style={{fontSize:13,color:"#8b8fa8",textAlign:"center",padding:"20px 0"}}>ยังไม่มีประวัติการปรับสต๊อก</div></div>;
+  }
+  return(
+    <div style={C.card}>
+      <div style={C.h3}>📊 ประวัติล่าสุด</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>
+            <th style={C.th}>เวลา</th>
+            <th style={C.th}>SKU</th>
+            <th style={C.th}>จำนวน</th>
+            <th style={C.th}>สถานะ</th>
+          </tr></thead>
+          <tbody>
+            {history.map((h,i)=>(
+              <tr key={i}>
+                <td style={C.td}>{fmtT(h.time)}</td>
+                <td style={C.td}>{h.sku}</td>
+                <td style={C.td}>{h.qty}</td>
+                <td style={{...C.td,color:h.ok?"#6ee7b7":"#f87171"}}>{h.ok?"✅ สำเร็จ":"✗ "+(h.error||"ล้มเหลว")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SettingsTab({info,onDisconnectWorker}){
+  return(
+    <div style={C.card}>
+      <div style={C.h3}>⚙️ ข้อมูลระบบ</div>
+      <div style={{fontSize:13,color:"#e2e8f0",lineHeight:2}}>
+        <div>โหมด: <b style={{color:info.env==="live"?"#f87171":"#6ee7b7"}}>{info.env==="live"?"LIVE (ร้านจริง)":"TEST (ทดสอบ)"}</b></div>
+        <div>Partner ID: {info.partnerId||"-"}</div>
+        <div>Shop ID: {info.shopId||"ยังไม่เชื่อมต่อ"}</div>
+      </div>
+      <button style={{...C.btnS,marginTop:14}} onClick={onDisconnectWorker}>ล้างค่า Worker URL / Access Key ของเบราว์เซอร์นี้</button>
+    </div>
+  );
+}
+
+function Dashboard(){
+  const [tab,setTab]=useState("stock");
+  const [status,setStatus]=useState({connected:false,skuCount:0});
+  const [history,setHistory]=useState([]);
+  const [info,setInfo]=useState({});
+  const [toast,setToast]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [fatalError,setFatalError]=useState("");
+
+  const t3=(msg,type)=>{setToast({msg,type:type||"ok"});setTimeout(()=>setToast(null),3000);};
+
+  const api=useCallback(async(path,opts)=>{
+    const workerUrl=lsG(LS_WORKER_URL);
+    const accessKey=lsG(LS_ACCESS_KEY)||"";
+    try{
+      const res=await fetch(workerUrl+path,{
+        ...opts,
+        headers:{"Content-Type":"application/json","X-Access-Key":accessKey,...(opts&&opts.headers)},
+      });
+      return await res.json();
+    }catch(e){
+      return{error:"เชื่อมต่อ Worker ไม่ได้ ตรวจสอบ Worker URL ในหน้าตั้งค่า ("+e.message+")"};
+    }
+  },[]);
+
+  const refreshStatus=useCallback(async()=>{
+    const res=await api("/status");
+    if(res.error){setFatalError(res.error);return;}
+    setStatus(res);
+  },[api]);
+
+  const refreshHistory=useCallback(async()=>{
+    const res=await api("/history");
+    setHistory(res.history||[]);
+  },[api]);
+
+  useEffect(()=>{
+    (async()=>{
+      await refreshStatus();
+      await refreshHistory();
+      const ci=await api("/config-info");
+      setInfo(ci);
+      setLoading(false);
+    })();
+  },[]);
+
+  const disconnectWorker=()=>{
+    localStorage.removeItem(LS_WORKER_URL);
+    localStorage.removeItem(LS_ACCESS_KEY);
+    location.reload();
+  };
+
+  const tabs=[
+    {id:"stock",label:"📦 ปรับสต๊อก"},
+    {id:"bulk",label:"📋 หลายรายการ"},
+    {id:"history",label:"📊 ประวัติ ("+history.length+")"},
+    {id:"settings",label:"⚙️ ตั้งค่า"},
+  ];
+
+  if(loading)return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+      <div style={{fontSize:52}}>🛒</div>
+      <div style={{fontSize:18,fontWeight:700}}>Shopee Stock Sync</div>
+      <div style={{color:"#8b8fa8",fontSize:13}}>กำลังโหลด...</div>
+      <div style={{width:36,height:36,border:"3px solid rgba(255,255,255,0.1)",borderTop:"3px solid #a78bfa",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:"100vh"}}>
+      <Toast toast={toast}/>
+
+      <div style={{background:"rgba(15,15,40,0.95)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,0.08)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100}}>
+        <div style={{width:40,height:40,background:"linear-gradient(135deg,#4f46e5,#7c3aed)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🛒</div>
+        <div style={{flex:1}}>
+          <div style={{color:"white",fontWeight:800,fontSize:16}}>Shopee Stock Sync</div>
+          <div style={{color:"#8b8fa8",fontSize:11}}>ระบบปรับสต๊อกสินค้าตาม SKU</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{color:status.connected?"#6ee7b7":"#f87171",fontWeight:800,fontSize:13}}>{status.connected?"● เชื่อมต่อแล้ว":"● ยังไม่เชื่อมต่อ"}</div>
+          <div style={{color:"#8b8fa8",fontSize:10}}>{status.skuCount} SKU</div>
+        </div>
+      </div>
+
+      {fatalError&&(
+        <div style={{...C.card,borderColor:"rgba(239,68,68,0.4)"}}>
+          <div style={{color:"#f87171",fontSize:13,fontWeight:700}}>เชื่อมต่อ Worker ไม่สำเร็จ</div>
+          <div style={{color:"#8b8fa8",fontSize:12,marginTop:6}}>{fatalError}</div>
+          <button style={{...C.btnS,marginTop:10}} onClick={disconnectWorker}>ตั้งค่า Worker URL ใหม่</button>
+        </div>
+      )}
+
+      {!fatalError&&!status.connected&&<ConnectCard status={status} onConnected={refreshStatus} t3={t3} api={api}/>}
+
+      {!fatalError&&status.connected&&(
+        <React.Fragment>
+          <div style={{display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.08)",background:"rgba(15,15,40,0.6)",marginTop:12}}>
+            {tabs.map(t=>(
+              <button key={t.id} onClick={()=>setTab(t.id)}
+                style={{padding:"12px 14px",border:"none",borderBottom:tab===t.id?"2px solid #a78bfa":"2px solid transparent",background:"transparent",color:tab===t.id?"#a78bfa":"#64748b",cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{padding:"0 0 40px"}}>
+            {tab==="stock"&&<StockTab status={status} refreshStatus={refreshStatus} t3={t3} pushLocalHistory={refreshHistory} api={api}/>}
+            {tab==="bulk"&&<BulkTab t3={t3} pushLocalHistory={refreshHistory} api={api}/>}
+            {tab==="history"&&<HistoryTab history={history}/>}
+            {tab==="settings"&&<SettingsTab info={info} onDisconnectWorker={disconnectWorker}/>}
+          </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+function App(){
+  const [ready,setReady]=useState(Boolean(lsG(LS_WORKER_URL)));
+  if(!ready)return <WorkerSetup onReady={()=>setReady(true)}/>;
+  return <Dashboard/>;
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
