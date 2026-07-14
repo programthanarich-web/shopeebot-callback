@@ -240,11 +240,22 @@ function printOrders(orders, title) {
   w.document.close();
 }
 
+function openPdfFromBase64(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+}
+
 function OrderCheckTab({t3,api}){
   const [orders,setOrders]=useState(null);
   const [loading,setLoading]=useState(false);
   const [checking,setChecking]=useState(false);
   const [filter,setFilter]=useState("all"); // all | ok | blocked
+  const [printingSn,setPrintingSn]=useState(null);
+  const [confirmSn,setConfirmSn]=useState(null);
 
   const load=async()=>{
     setLoading(true);
@@ -271,6 +282,17 @@ function OrderCheckTab({t3,api}){
     if(res.error||!res.ok){t3("ปรับสถานะไม่สำเร็จ: "+(res.error||"unknown"),"err");return;}
     t3("ปรับสถานะ "+orderSn+" แล้ว");
     load();
+  };
+
+  const printRealLabel=async(orderSn)=>{
+    setConfirmSn(null);
+    setPrintingSn(orderSn);
+    t3("กำลังจองคิวขนส่งและสร้างใบปะหน้า... (อาจใช้เวลาสักครู่)");
+    const res=await api("/order-print-label",{method:"POST",body:JSON.stringify({orderSn})});
+    setPrintingSn(null);
+    if(res.error||!res.ok){t3("พิมพ์ใบปะหน้าไม่สำเร็จ: "+(res.error||"unknown"),"err");return;}
+    openPdfFromBase64(res.pdfBase64);
+    t3("✅ สร้างใบปะหน้าสำเร็จ เปิดในแท็บใหม่แล้ว");
   };
 
   const filtered=(orders||[]).filter(o=>filter==="all"||o.status===filter);
@@ -341,6 +363,12 @@ function OrderCheckTab({t3,api}){
                       {o.status==="ok"
                         ?<button style={{...C.btnD}} onClick={()=>override(o.orderSn,"blocked")}>เปลี่ยนเป็นซองเปล่า</button>
                         :<button style={{...C.btnS}} onClick={()=>override(o.orderSn,"ok")}>เปลี่ยนเป็นส่งจริง</button>}
+                      <button
+                        style={{...C.btnP,marginLeft:6,padding:"6px 10px",fontSize:12,opacity:printingSn===o.orderSn?0.6:1}}
+                        disabled={printingSn===o.orderSn}
+                        onClick={()=>setConfirmSn(o.orderSn)}>
+                        {printingSn===o.orderSn?"กำลังพิมพ์...":"🖨️ ใบปะหน้าจริง"}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -349,6 +377,22 @@ function OrderCheckTab({t3,api}){
           </div>
         )}
       </div>
+
+      {confirmSn&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
+          <div style={{...C.card,margin:0,maxWidth:420,background:"#1a1a2e"}}>
+            <div style={{...C.h3,color:"#f87171"}}>⚠️ ยืนยันการจองคิวขนส่งจริง</div>
+            <div style={{fontSize:13,color:"#e2e8f0",lineHeight:1.6,marginBottom:16}}>
+              คำสั่งซื้อ <b>{confirmSn}</b> จะถูก<b>จองคิวรับพัสดุกับขนส่งจริงทันที</b> (ไม่ใช่แค่ดูตัวอย่าง)
+              การกระทำนี้มีผลจริงกับระบบขนส่งของร้าน ต้องการดำเนินการต่อหรือไม่?
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button style={C.btnS} onClick={()=>setConfirmSn(null)}>ยกเลิก</button>
+              <button style={{...C.btnP,background:"linear-gradient(135deg,#dc2626,#991b1b)"}} onClick={()=>printRealLabel(confirmSn)}>ยืนยัน จองคิว & พิมพ์</button>
+            </div>
+          </div>
+        </div>
+      )}
     </React.Fragment>
   );
 }
