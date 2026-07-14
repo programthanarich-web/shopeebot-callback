@@ -205,204 +205,6 @@ function BulkTab({t3,pushLocalHistory,api}){
   );
 }
 
-function printOrders(orders, title) {
-  const rows = orders.map((o, i) => `
-    <tr>
-      <td style="padding:8px;border:1px solid #ccc">${i + 1}</td>
-      <td style="padding:8px;border:1px solid #ccc;font-weight:bold">${o.orderSn}</td>
-      <td style="padding:8px;border:1px solid #ccc">${o.buyerUsername || '-'}</td>
-      <td style="padding:8px;border:1px solid #ccc">${o.address || '-'}</td>
-      <td style="padding:8px;border:1px solid #ccc">${o.itemNames || '-'}</td>
-      <td style="padding:8px;border:1px solid #ccc;font-weight:bold;color:${o.status==='ok'?'#059669':'#dc2626'}">
-        ${o.status==='ok'?'ส่งซิมจริง':'ส่งซองเปล่า'}
-      </td>
-      <td style="padding:8px;border:1px solid #ccc;font-size:12px;color:#666">${o.reason||'-'}</td>
-    </tr>`).join('');
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
-    <style>
-      body{font-family:Sarabun,sans-serif;padding:20px}
-      table{width:100%;border-collapse:collapse;font-size:13px}
-      th{background:#f0f0f0;padding:8px;border:1px solid #ccc;text-align:left}
-      h2{margin-bottom:4px}
-      .meta{color:#666;font-size:12px;margin-bottom:16px}
-      @media print{ button{display:none} }
-    </style></head><body>
-    <h2>${title}</h2>
-    <div class="meta">พิมพ์เมื่อ: ${new Date().toLocaleString('th-TH')} | จำนวน: ${orders.length} รายการ</div>
-    <button onclick="window.print()" style="margin-bottom:12px;padding:8px 16px;cursor:pointer">🖨️ พิมพ์</button>
-    <table>
-      <thead><tr><th>#</th><th>เลขคำสั่งซื้อ</th><th>ผู้ซื้อ</th><th>ที่อยู่จัดส่ง</th><th>สินค้า</th><th>สถานะ</th><th>เหตุผล</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    </body></html>`;
-
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
-}
-
-function openPdfFromBase64(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-}
-
-function OrderCheckTab({t3,api}){
-  const [orders,setOrders]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const [checking,setChecking]=useState(false);
-  const [filter,setFilter]=useState("all"); // all | ok | blocked
-  const [printingSn,setPrintingSn]=useState(null);
-  const [confirmSn,setConfirmSn]=useState(null);
-
-  const load=async()=>{
-    setLoading(true);
-    const res=await api("/order-list");
-    setLoading(false);
-    if(res.error){t3("โหลดรายการไม่สำเร็จ: "+res.error,"err");return;}
-    setOrders(res.orders||[]);
-  };
-
-  useEffect(()=>{ load(); },[]);
-
-  const runCheck=async()=>{
-    setChecking(true);
-    t3("กำลังดึงคำสั่งซื้อและตรวจสอบเงื่อนไข...");
-    const res=await api("/check-orders",{method:"POST",body:JSON.stringify({daysBack:30})});
-    setChecking(false);
-    if(res.error){t3("ตรวจสอบไม่สำเร็จ: "+res.error,"err");return;}
-    t3(`✅ ตรวจสอบเสร็จ: รวม ${res.total} | ส่งจริง ${res.okCount} | ส่งซองเปล่า ${res.blockedCount} | Free ${res.freeCount||0}`);
-    load();
-  };
-
-  const override=async(orderSn,status)=>{
-    const res=await api("/order-override",{method:"POST",body:JSON.stringify({orderSn,status})});
-    if(res.error||!res.ok){t3("ปรับสถานะไม่สำเร็จ: "+(res.error||"unknown"),"err");return;}
-    t3("ปรับสถานะ "+orderSn+" แล้ว");
-    load();
-  };
-
-  const printRealLabel=async(orderSn)=>{
-    setConfirmSn(null);
-    setPrintingSn(orderSn);
-    t3("กำลังจองคิวขนส่งและสร้างใบปะหน้า... (อาจใช้เวลาสักครู่)");
-    const res=await api("/order-print-label",{method:"POST",body:JSON.stringify({orderSn})});
-    setPrintingSn(null);
-    if(res.error||!res.ok){t3("พิมพ์ใบปะหน้าไม่สำเร็จ: "+(res.error||"unknown"),"err");return;}
-    openPdfFromBase64(res.pdfBase64);
-    t3("✅ สร้างใบปะหน้าสำเร็จ เปิดในแท็บใหม่แล้ว");
-  };
-
-  const filtered=(orders||[]).filter(o=>filter==="all"||o.status===filter);
-  const okList=(orders||[]).filter(o=>o.status==="ok");
-  const blockedList=(orders||[]).filter(o=>o.status==="blocked");
-
-  return(
-    <React.Fragment>
-      <div style={C.card}>
-        <div style={C.h3}>🔍 ตรวจสอบคำสั่งซื้อ (1 ซิม / 1 ที่อยู่ / 1 ผู้ซื้อ)</div>
-        <div style={{fontSize:12,color:"#8b8fa8",marginBottom:10}}>
-          ดึงคำสั่งซื้อที่พร้อมส่ง (READY_TO_SHIP) ย้อนหลัง 30 วัน มาเช็คว่าที่อยู่/ผู้ซื้อนี้เคยได้รับสินค้าไปแล้วหรือไม่ —
-          ถ้าซ้ำ ระบบจะ flag ให้ส่งซองเปล่าแทน (ยกเว้นสินค้าที่มีตัวเลือก "Free/ฟรี" — ส่งทุกคำสั่งซื้อเสมอ ไม่นับโควต้า)
-        </div>
-        <button style={{...C.btnP,opacity:checking?0.6:1}} disabled={checking} onClick={runCheck}>
-          {checking?"กำลังตรวจสอบ...":"ดึงคำสั่งซื้อใหม่ & ตรวจสอบ"}
-        </button>
-        {orders&&(
-          <div style={{marginTop:14,display:"flex",gap:16,fontSize:13,flexWrap:"wrap"}}>
-            <div>รวม: <b>{orders.length}</b></div>
-            <div style={{color:"#6ee7b7"}}>ส่งซิมจริง: <b>{okList.length}</b></div>
-            <div style={{color:"#f87171"}}>ส่งซองเปล่า: <b>{blockedList.length}</b></div>
-            <div style={{color:"#a78bfa"}}>Free (ไม่นับโควต้า): <b>{orders.filter(o=>o.isFree).length}</b></div>
-          </div>
-        )}
-      </div>
-
-      <div style={C.card}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
-          <div style={C.h3}>รายการคำสั่งซื้อ</div>
-          <div style={{display:"flex",gap:6}}>
-            <button style={C.btnS} onClick={()=>printOrders(blockedList,"รายการส่งซองเปล่า")} disabled={blockedList.length===0}>🖨️ พิมพ์ซองเปล่า ({blockedList.length})</button>
-            <button style={C.btnS} onClick={()=>printOrders(okList,"รายการส่งซิมจริง")} disabled={okList.length===0}>🖨️ พิมพ์ส่งซิมจริง ({okList.length})</button>
-          </div>
-        </div>
-
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          <button style={{...C.btnS,background:filter==="all"?"rgba(167,139,250,0.25)":C.btnS.background}} onClick={()=>setFilter("all")}>ทั้งหมด</button>
-          <button style={{...C.btnS,background:filter==="ok"?"rgba(110,231,183,0.25)":C.btnS.background}} onClick={()=>setFilter("ok")}>ส่งซิมจริง</button>
-          <button style={{...C.btnS,background:filter==="blocked"?"rgba(248,113,113,0.25)":C.btnS.background}} onClick={()=>setFilter("blocked")}>ส่งซองเปล่า</button>
-        </div>
-
-        {loading&&!orders&&<div style={{fontSize:13,color:"#8b8fa8",textAlign:"center",padding:"20px 0"}}>กำลังโหลด...</div>}
-        {orders&&orders.length===0&&<div style={{fontSize:13,color:"#8b8fa8",textAlign:"center",padding:"20px 0"}}>ยังไม่มีข้อมูล — กด "ดึงคำสั่งซื้อใหม่ & ตรวจสอบ" ก่อน</div>}
-        {orders&&filtered.length>0&&(
-          <div style={{overflowX:"auto",maxHeight:460,overflowY:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr>
-                <th style={C.th}>Order SN</th>
-                <th style={C.th}>ผู้ซื้อ</th>
-                <th style={C.th}>ที่อยู่</th>
-                <th style={C.th}>สถานะ</th>
-                <th style={C.th}>เหตุผล</th>
-                <th style={C.th}>พิมพ์แล้ว</th>
-                <th style={C.th}>ปรับสถานะ</th>
-              </tr></thead>
-              <tbody>
-                {filtered.map((o,i)=>(
-                  <tr key={i}>
-                    <td style={{...C.td,fontWeight:700}}>{o.orderSn}</td>
-                    <td style={C.td}>{o.buyerUsername}</td>
-                    <td style={{...C.td,maxWidth:220,whiteSpace:"normal"}}>{o.address}</td>
-                    <td style={{...C.td,color:o.status==="ok"?"#6ee7b7":"#f87171",fontWeight:700}}>
-                      {o.status==="ok"?"ส่งซิมจริง":"ส่งซองเปล่า"}
-                      {o.isFree&&<span style={{marginLeft:6,fontSize:10,background:"rgba(167,139,250,0.25)",color:"#a78bfa",padding:"2px 6px",borderRadius:6,fontWeight:700}}>FREE</span>}
-                    </td>
-                    <td style={{...C.td,fontSize:12,color:"#8b8fa8"}}>{o.reason||"-"}</td>
-                    <td style={{...C.td,fontSize:12,color:o.printedAt?"#6ee7b7":"#64748b"}}>
-                      {o.printedAt?new Date(o.printedAt).toLocaleString("th-TH"):"ยังไม่พิมพ์"}
-                    </td>
-                    <td style={C.td}>
-                      {o.status==="ok"
-                        ?<button style={{...C.btnD}} onClick={()=>override(o.orderSn,"blocked")}>เปลี่ยนเป็นซองเปล่า</button>
-                        :<button style={{...C.btnS}} onClick={()=>override(o.orderSn,"ok")}>เปลี่ยนเป็นส่งจริง</button>}
-                      <button
-                        style={{...C.btnP,marginLeft:6,padding:"6px 10px",fontSize:12,opacity:printingSn===o.orderSn?0.6:1}}
-                        disabled={printingSn===o.orderSn}
-                        onClick={()=>setConfirmSn(o.orderSn)}>
-                        {printingSn===o.orderSn?"กำลังพิมพ์...":"🖨️ ใบปะหน้าจริง"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {confirmSn&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
-          <div style={{...C.card,margin:0,maxWidth:420,background:"#1a1a2e"}}>
-            <div style={{...C.h3,color:"#f87171"}}>⚠️ ยืนยันการจองคิวขนส่งจริง</div>
-            <div style={{fontSize:13,color:"#e2e8f0",lineHeight:1.6,marginBottom:16}}>
-              คำสั่งซื้อ <b>{confirmSn}</b> จะถูก<b>จองคิวรับพัสดุกับขนส่งจริงทันที</b> (ไม่ใช่แค่ดูตัวอย่าง)
-              การกระทำนี้มีผลจริงกับระบบขนส่งของร้าน ต้องการดำเนินการต่อหรือไม่?
-            </div>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-              <button style={C.btnS} onClick={()=>setConfirmSn(null)}>ยกเลิก</button>
-              <button style={{...C.btnP,background:"linear-gradient(135deg,#dc2626,#991b1b)"}} onClick={()=>printRealLabel(confirmSn)}>ยืนยัน จองคิว & พิมพ์</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </React.Fragment>
-  );
-}
-
 // ---------- แยกไฟล์ PDF ใบปะหน้าตามผลตรวจสอบ (ok / blocked) ----------
 if (typeof pdfjsLib !== "undefined") {
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -474,6 +276,16 @@ function PdfSplitTab({t3,api}){
   const [fileNames,setFileNames]=useState([]);
   const [processing,setProcessing]=useState(false);
   const [result,setResult]=useState(null);
+  const [checking,setChecking]=useState(false);
+
+  const runCheck=async()=>{
+    setChecking(true);
+    t3("กำลังดึงคำสั่งซื้อและตรวจสอบเงื่อนไข...");
+    const res=await api("/check-orders",{method:"POST",body:JSON.stringify({daysBack:30})});
+    setChecking(false);
+    if(res.error){t3("ตรวจสอบไม่สำเร็จ: "+res.error,"err");return;}
+    t3(`✅ ตรวจสอบเสร็จ: รวม ${res.total} | ส่งจริง ${res.okCount} | ส่งซองเปล่า ${res.blockedCount} | Free ${res.freeCount||0}`);
+  };
 
   const handleFiles=async(e)=>{
     const files=Array.from(e.target.files||[]);
@@ -554,11 +366,15 @@ function PdfSplitTab({t3,api}){
       <div style={C.h3}>📎 แยกใบปะหน้าจากไฟล์ PDF (bulk export)</div>
       <div style={{fontSize:12,color:"#8b8fa8",marginBottom:12}}>
         อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre ได้ <b>ทีละหลายไฟล์พร้อมกัน</b> (รวมหลายออเดอร์ต่อไฟล์ได้ตามปกติ)
-        ระบบจะอ่านเลขคำสั่งซื้อในทุกหน้าของทุกไฟล์ จับคู่กับผลตรวจสอบที่เคยทำไว้ (ต้องกด "ดึงคำสั่งซื้อใหม่ &amp; ตรวจสอบ"
-        ในแท็บตรวจสอบคำสั่งซื้อมาก่อน) แล้วรวมทุกไฟล์แยกเป็น 4 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (สินค้ามีคำว่า Free/ฟรี),{" "}
+        ระบบจะอ่านเลขคำสั่งซื้อในทุกหน้าของทุกไฟล์ จับคู่กับผลตรวจสอบเงื่อนไข (กดปุ่มด้านล่างเพื่อดึง/อัปเดตผลตรวจสอบก่อนอัปโหลด PDF)
+        แล้วรวมทุกไฟล์แยกเป็น 4 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (สินค้ามีคำว่า Free/ฟรี),{" "}
         <b>ซิมพม่า</b> (ตัวเลือก 15M300/8M250/ซิมสมัครได้ทุกโปร ที่เข้าเงื่อนไข), <b>ซิมโดนใจ</b> (ตัวเลือกอื่นที่เข้าเงื่อนไข),
         และ <b>ซิมไม่เข้าเงื่อนไข</b> (ซ้ำที่อยู่/ผู้ซื้อ ไม่ว่าสินค้าใด พร้อมสรุปเหตุผล) — ออเดอร์ที่เคยพิมพ์ไปแล้วจะถูกแยกออกต่างหากกันพิมพ์ซ้ำ
       </div>
+
+      <button style={{...C.btnP,opacity:checking?0.6:1,marginBottom:14}} disabled={checking} onClick={runCheck}>
+        {checking?"กำลังตรวจสอบ...":"🔍 ดึงคำสั่งซื้อใหม่ & ตรวจสอบเงื่อนไข (ย้อนหลัง 30 วัน)"}
+      </button>
 
       <input type="file" accept="application/pdf" multiple onChange={handleFiles}
         style={{...C.inp,padding:8}} disabled={processing}/>
@@ -813,7 +629,6 @@ function Dashboard(){
   const tabs=[
     {id:"stock",label:"📦 ปรับสต๊อก"},
     {id:"bulk",label:"📋 หลายรายการ"},
-    {id:"orders",label:"🔍 ตรวจสอบคำสั่งซื้อ"},
     {id:"pdfsplit",label:"📎 แยกใบปะหน้า PDF"},
     {id:"skulist",label:"🗂️ รายการ SKU"},
     {id:"history",label:"📊 ประวัติ ("+history.length+")"},
@@ -869,7 +684,6 @@ function Dashboard(){
           <div style={{padding:"0 0 40px"}}>
             {tab==="stock"&&<StockTab status={status} refreshStatus={refreshStatus} t3={t3} pushLocalHistory={refreshHistory} api={api}/>}
             {tab==="bulk"&&<BulkTab t3={t3} pushLocalHistory={refreshHistory} api={api}/>}
-            {tab==="orders"&&<OrderCheckTab t3={t3} api={api}/>}
             {tab==="pdfsplit"&&<PdfSplitTab t3={t3} api={api}/>}
             {tab==="skulist"&&<SkuListTab t3={t3} api={api}/>}
             {tab==="history"&&<HistoryTab history={history}/>}
