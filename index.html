@@ -277,18 +277,24 @@ async function extractPagesInfo(arrayBuffer){
 
 function UnmatchedRow({u}){
   const [open,setOpen]=useState(false);
+  const preview = (u.rawText||"").replace(/\n/g," ⏎ ").slice(0,180);
   return(
     <React.Fragment>
       <tr>
         <td style={{...C.td,fontSize:11}}>{u.file}</td>
         <td style={C.td}>{u.page}</td>
-        <td style={C.td}>{u.sn} — {u.reason}</td>
-        <td style={C.td}><button style={{...C.btnS,padding:"4px 8px",fontSize:11}} onClick={()=>setOpen(!open)}>{open?"ซ่อน":"ดูข้อความ"}</button></td>
+        <td style={C.td}>
+          <div>{u.sn} — {u.reason}</div>
+          <div style={{fontSize:10,color:"#64748b",fontFamily:"monospace",marginTop:4,wordBreak:"break-all"}}>
+            {preview}{(u.rawText||"").length>180?"...":""}
+          </div>
+          <button style={{...C.btnS,padding:"3px 8px",fontSize:11,marginTop:6}} onClick={()=>setOpen(!open)}>{open?"ซ่อนข้อความเต็ม":"ดูข้อความเต็ม (copy ได้)"}</button>
+        </td>
       </tr>
       {open&&(
         <tr>
-          <td colSpan={4} style={{...C.td,background:"rgba(0,0,0,0.3)"}}>
-            <textarea readOnly value={u.rawText||""} style={{width:"100%",height:140,background:"rgba(255,255,255,0.05)",color:"#e2e8f0",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:8,fontSize:11,fontFamily:"monospace"}}/>
+          <td colSpan={3} style={{...C.td,background:"rgba(0,0,0,0.3)"}}>
+            <textarea readOnly value={u.rawText||""} style={{width:"100%",height:160,background:"rgba(255,255,255,0.05)",color:"#e2e8f0",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:8,fontSize:11,fontFamily:"monospace"}}/>
           </td>
         </tr>
       )}
@@ -523,7 +529,7 @@ function PdfSplitTab({t3,api}){
               <div style={{fontSize:13,fontWeight:700,color:"#fbbf24",marginBottom:8}}>⚠️ หน้าที่จับคู่ไม่ได้ (ตรวจสอบเอง):</div>
               <div style={{overflowX:"auto",maxHeight:300,overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr><th style={C.th}>ไฟล์</th><th style={C.th}>หน้าที่</th><th style={C.th}>เลข/สาเหตุ</th><th style={C.th}>ข้อความดิบ</th></tr></thead>
+                  <thead><tr><th style={C.th}>ไฟล์</th><th style={C.th}>หน้าที่</th><th style={C.th}>เลข/สาเหตุ/ข้อความ</th></tr></thead>
                   <tbody>
                     {result.unmatched.map((u,i)=>(
                       <UnmatchedRow key={i} u={u}/>
