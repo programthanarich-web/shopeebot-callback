@@ -213,7 +213,8 @@ if (typeof pdfjsLib !== "undefined") {
 const ORDER_SN_REGEX = /Shopee\s*Order\s*No\.?\s*[:\s]*([A-Z0-9]{10,16})/i;
 // จับข้อความตั้งแต่ "ผู้รับ (TO)" ไปจนถึงจุดที่ label เริ่มพูดถึงวันที่รับพัสดุ (PICKUP DATE) —
 // เพื่อดึงเฉพาะบล็อกที่อยู่ผู้รับ ไม่เอาที่อยู่ผู้ส่งมาปน
-const RECIPIENT_REGEX = /ผู้รับ\s*\(?\s*TO\s*\)?\s*([\s\S]*?)(?:PICKUP\s*DATE|SHIP\s*BY\s*DATE|NOTE\b)/i;
+// ผ.{0,2}รับ กันเคสฟอนต์ที่ทำให้สระ/วรรณยุกต์ในคำว่า "ผู้รับ" หายไปกลายเป็น □ (เช่น "ผ□รับ")
+const RECIPIENT_REGEX = /ผ.{0,2}รับ\s*\(?\s*TO\s*\)?\s*([\s\S]*?)(?:PICKUP\s*DATE|SHIP\s*BY\s*DATE|NOTE\b)/i;
 
 /** จัดเรียง text item ของหน้า PDF ตามตำแหน่งจริง (บนลงล่าง, ซ้ายไปขวา)
  *  แทนลำดับดิบจาก content stream ซึ่งบางทีสลับ FROM/TO กันได้
@@ -250,7 +251,10 @@ function finalizeLine(lineItems){
 }
 
 function cleanAddressText(raw){
-  return (raw||"").replace(/\s+/g," ").trim();
+  return (raw||"")
+    .replace(/[\u25A1\uFFFD□]/g, "") // ตัดสัญลักษณ์ □ (ตัวอักษรที่ฟอนต์แปลไม่ได้) ออก กันเทียบที่อยู่ผิดพลาด
+    .replace(/\s+/g," ")
+    .trim();
 }
 
 async function extractPagesInfo(arrayBuffer){
