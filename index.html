@@ -262,7 +262,7 @@ function OrderCheckTab({t3,api}){
     const res=await api("/check-orders",{method:"POST",body:JSON.stringify({daysBack:30})});
     setChecking(false);
     if(res.error){t3("ตรวจสอบไม่สำเร็จ: "+res.error,"err");return;}
-    t3(`✅ ตรวจสอบเสร็จ: รวม ${res.total} | ส่งจริง ${res.okCount} | ส่งซองเปล่า ${res.blockedCount}`);
+    t3(`✅ ตรวจสอบเสร็จ: รวม ${res.total} | ส่งจริง ${res.okCount} | ส่งซองเปล่า ${res.blockedCount} | Free ${res.freeCount||0}`);
     load();
   };
 
@@ -283,16 +283,17 @@ function OrderCheckTab({t3,api}){
         <div style={C.h3}>🔍 ตรวจสอบคำสั่งซื้อ (1 ซิม / 1 ที่อยู่ / 1 ผู้ซื้อ)</div>
         <div style={{fontSize:12,color:"#8b8fa8",marginBottom:10}}>
           ดึงคำสั่งซื้อที่พร้อมส่ง (READY_TO_SHIP) ย้อนหลัง 30 วัน มาเช็คว่าที่อยู่/ผู้ซื้อนี้เคยได้รับสินค้าไปแล้วหรือไม่ —
-          ถ้าซ้ำ ระบบจะ flag ให้ส่งซองเปล่าแทน
+          ถ้าซ้ำ ระบบจะ flag ให้ส่งซองเปล่าแทน (ยกเว้นสินค้าที่มีตัวเลือก "Free/ฟรี" — ส่งทุกคำสั่งซื้อเสมอ ไม่นับโควต้า)
         </div>
         <button style={{...C.btnP,opacity:checking?0.6:1}} disabled={checking} onClick={runCheck}>
           {checking?"กำลังตรวจสอบ...":"ดึงคำสั่งซื้อใหม่ & ตรวจสอบ"}
         </button>
         {orders&&(
-          <div style={{marginTop:14,display:"flex",gap:16,fontSize:13}}>
+          <div style={{marginTop:14,display:"flex",gap:16,fontSize:13,flexWrap:"wrap"}}>
             <div>รวม: <b>{orders.length}</b></div>
             <div style={{color:"#6ee7b7"}}>ส่งซิมจริง: <b>{okList.length}</b></div>
             <div style={{color:"#f87171"}}>ส่งซองเปล่า: <b>{blockedList.length}</b></div>
+            <div style={{color:"#a78bfa"}}>Free (ไม่นับโควต้า): <b>{orders.filter(o=>o.isFree).length}</b></div>
           </div>
         )}
       </div>
@@ -333,6 +334,7 @@ function OrderCheckTab({t3,api}){
                     <td style={{...C.td,maxWidth:220,whiteSpace:"normal"}}>{o.address}</td>
                     <td style={{...C.td,color:o.status==="ok"?"#6ee7b7":"#f87171",fontWeight:700}}>
                       {o.status==="ok"?"ส่งซิมจริง":"ส่งซองเปล่า"}
+                      {o.isFree&&<span style={{marginLeft:6,fontSize:10,background:"rgba(167,139,250,0.25)",color:"#a78bfa",padding:"2px 6px",borderRadius:6,fontWeight:700}}>FREE</span>}
                     </td>
                     <td style={{...C.td,fontSize:12,color:"#8b8fa8"}}>{o.reason||"-"}</td>
                     <td style={C.td}>
