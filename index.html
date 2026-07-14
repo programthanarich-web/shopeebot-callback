@@ -295,7 +295,7 @@ async function extractPagesInfo(arrayBuffer){
     const hasMyanmar = myanmarKeywords.some(k=>flat.includes(k));
     const hasRealProductSignal = hasAis || hasMyanmar;
 
-    pages.push({pageIdx:i-1, sn, address, isFree, hasAis, hasMyanmar, hasRealProductSignal, rawText:text});
+    pages.push({pageIdx:i-1, sn, address, isFree, hasAis, hasMyanmar, hasRealProductSignal, variantText, rawText:text});
   }
   return pages;
 }
@@ -418,11 +418,13 @@ function PdfSplitTab({t3,api}){
 
       const groups={free:[],ais:[],myanmar:[],donjai:[],blocked:[]};
       const alreadyPrintedPages=[];
+      const debugRows=[];
 
       nonFreePages.forEach(p=>{
         const ar=addressResults[p.sn]||{};
         const cat=classifyPage({isFree:p.isFree, hasAis:p.hasAis, hasMyanmar:p.hasMyanmar, hasRealProductSignal:p.hasRealProductSignal, duplicate:ar.duplicate, firstSeenOrderSn:ar.firstSeenOrderSn});
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:cat.reason};
+        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:ar.duplicate,printedAt:ar.printedAt,group:cat.group,variantText:p.variantText,address:p.address});
         if(ar.printedAt){
           alreadyPrintedPages.push({...item,printedAt:ar.printedAt,categoryLabel:cat.label});
         }else{
@@ -433,6 +435,7 @@ function PdfSplitTab({t3,api}){
       freePages.forEach(p=>{
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn};
         const printedAt=freePrintedMap[p.sn];
+        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:false,printedAt,group:"free",variantText:p.variantText,address:p.address});
         if(printedAt){
           alreadyPrintedPages.push({...item,printedAt,categoryLabel:"ซิมฟรีเดือนแรก"});
         }else{
@@ -440,7 +443,7 @@ function PdfSplitTab({t3,api}){
         }
       });
 
-      setResult({groups,alreadyPrintedPages,unmatched,filesBytes,totalPages:totalPagesCount});
+      setResult({groups,alreadyPrintedPages,unmatched,filesBytes,totalPages:totalPagesCount,debugRows});
       t3(`✅ วิเคราะห์เสร็จ (${files.length} ไฟล์, ${totalPagesCount} หน้า): Free ${groups.free.length} | เอไอเอส ${groups.ais.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
     }catch(err){
       t3("อ่านไฟล์ PDF ไม่สำเร็จ: "+err.message,"err");
@@ -465,6 +468,22 @@ function PdfSplitTab({t3,api}){
     }catch(err){
       t3("สร้างไฟล์ไม่สำเร็จ: "+err.message,"err");
     }
+  };
+
+  const exportDebugInfo=()=>{
+    if(!result||!result.debugRows){t3("ยังไม่มีข้อมูลให้ export","warn");return;}
+    const header="file\tpage\tsn\tgroup\tisFree\thasAis\thasMyanmar\thasRealProductSignal\tduplicate\tprintedAt\tvariantText\taddress";
+    const rows=result.debugRows.map(r=>[
+      r.file,r.page,r.sn,r.group,r.isFree,r.hasAis,r.hasMyanmar,r.hasRealProductSignal,
+      r.duplicate||false,r.printedAt?new Date(r.printedAt).toISOString():"",
+      (r.variantText||"").replace(/\t/g," "),(r.address||"").replace(/\t/g," ")
+    ].join("\t"));
+    const content=[header,...rows].join("\n");
+    const blob=new Blob([content],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download="debug_pdf_split.txt"; a.click();
+    t3("ดาวน์โหลดไฟล์ debug แล้ว");
   };
 
   return(
@@ -498,6 +517,7 @@ function PdfSplitTab({t3,api}){
             <div style={{color:"#f87171"}}>ไม่เข้าเงื่อนไข: <b>{result.groups.blocked.length}</b></div>
             <div style={{color:"#64748b"}}>พิมพ์ไปแล้ว: <b>{result.alreadyPrintedPages.length}</b></div>
             <div style={{color:"#fbbf24"}}>จับคู่ไม่ได้: <b>{result.unmatched.length}</b></div>
+            <button style={{...C.btnS,fontSize:11,padding:"4px 10px"}} onClick={exportDebugInfo}>📝 ส่งออกข้อมูล Debug ทั้งหมด (.txt)</button>
           </div>
 
           <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
