@@ -216,18 +216,37 @@ const ORDER_SN_REGEX = /Shopee\s*Order\s*No\.?\s*[:\s]*([A-Z0-9]{10,16})/i;
 const RECIPIENT_REGEX = /ผู้รับ\s*\(?\s*TO\s*\)?\s*([\s\S]*?)(?:PICKUP\s*DATE|SHIP\s*BY\s*DATE|NOTE\b)/i;
 
 /** จัดเรียง text item ของหน้า PDF ตามตำแหน่งจริง (บนลงล่าง, ซ้ายไปขวา)
- *  แทนลำดับดิบจาก content stream ซึ่งบางทีสลับ FROM/TO กันได้ */
+ *  แทนลำดับดิบจาก content stream ซึ่งบางทีสลับ FROM/TO กันได้
+ *  ใช้ระยะห่างระหว่างตัวอักษร (ไม่ใช่ space คงที่) ตัดสินว่าควรมีช่องว่างหรือไม่
+ *  กันปัญหาตัวอักษรไทยถูกแยกเป็นชิ้นๆ แล้วมี space แทรกจนคำผิดเพี้ยน (เช่น "ผู้รับ" กลายเป็น "ผ ู ้ ร ั บ") */
 function reconstructPageText(content){
-  const items = content.items.map(it=>({str:it.str, x:it.transform[4], y:it.transform[5]}));
+  const items = content.items.map(it=>({
+    str: it.str, x: it.transform[4], y: it.transform[5],
+    width: it.width||0, height: Math.abs(it.height||it.transform[3]||10),
+  }));
   items.sort((a,b)=> b.y-a.y || a.x-b.x);
   const lines=[]; let cur=[]; let curY=null;
   const TOL=3;
   for(const it of items){
     if(curY===null || Math.abs(it.y-curY)<=TOL){ cur.push(it); if(curY===null)curY=it.y; }
-    else { lines.push(cur.sort((a,b)=>a.x-b.x)); cur=[it]; curY=it.y; }
+    else { lines.push(finalizeLine(cur)); cur=[it]; curY=it.y; }
   }
-  if(cur.length) lines.push(cur.sort((a,b)=>a.x-b.x));
-  return lines.map(l=>l.map(it=>it.str).join(" ")).join("\n");
+  if(cur.length) lines.push(finalizeLine(cur));
+  return lines.join("\n");
+}
+
+function finalizeLine(lineItems){
+  lineItems.sort((a,b)=>a.x-b.x);
+  let line=""; let prevEndX=null;
+  for(const it of lineItems){
+    if(prevEndX!==null){
+      const gap = it.x - prevEndX;
+      if(gap > it.height*0.25) line += " "; // ห่างพอสมควรถึงจะถือว่าเป็นช่องว่างจริง
+    }
+    line += it.str;
+    prevEndX = it.x + it.width;
+  }
+  return line;
 }
 
 function cleanAddressText(raw){
@@ -251,9 +270,30 @@ async function extractPagesInfo(arrayBuffer){
     const pageTextLower = text.toLowerCase();
     const isFree = /free/i.test(pageTextLower); // ใช้คำอังกฤษ "free" เท่านั้น กันชนกับคำไทยการตลาดเช่น "โทรฟรี"
 
-    pages.push({pageIdx:i-1, sn, address, isFree, pageTextLower});
+    pages.push({pageIdx:i-1, sn, address, isFree, pageTextLower, rawText:text});
   }
   return pages;
+}
+
+function UnmatchedRow({u}){
+  const [open,setOpen]=useState(false);
+  return(
+    <React.Fragment>
+      <tr>
+        <td style={{...C.td,fontSize:11}}>{u.file}</td>
+        <td style={C.td}>{u.page}</td>
+        <td style={C.td}>{u.sn} — {u.reason}</td>
+        <td style={C.td}><button style={{...C.btnS,padding:"4px 8px",fontSize:11}} onClick={()=>setOpen(!open)}>{open?"ซ่อน":"ดูข้อความ"}</button></td>
+      </tr>
+      {open&&(
+        <tr>
+          <td colSpan={4} style={{...C.td,background:"rgba(0,0,0,0.3)"}}>
+            <textarea readOnly value={u.rawText||""} style={{width:"100%",height:140,background:"rgba(255,255,255,0.05)",color:"#e2e8f0",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:8,fontSize:11,fontFamily:"monospace"}}/>
+          </td>
+        </tr>
+      )}
+    </React.Fragment>
+  );
 }
 
 function classifyPage({isFree, duplicate, firstSeenOrderSn, pageTextLower}){
@@ -318,7 +358,7 @@ function PdfSplitTab({t3,api}){
       const validPages=[];
       allPages.forEach(p=>{
         if(!p.sn||!p.address){
-          unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn||"(อ่านเลขไม่พบ)",reason:!p.sn?"หาเลขคำสั่งซื้อไม่พบ":"หาที่อยู่ผู้รับไม่พบ"});
+          unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn||"(อ่านเลขไม่พบ)",reason:!p.sn?"หาเลขคำสั่งซื้อไม่พบ":"หาที่อยู่ผู้รับไม่พบ",rawText:p.rawText});
           return;
         }
         validPages.push(p);
@@ -481,12 +521,12 @@ function PdfSplitTab({t3,api}){
           {result.unmatched.length>0&&(
             <div style={{marginTop:16}}>
               <div style={{fontSize:13,fontWeight:700,color:"#fbbf24",marginBottom:8}}>⚠️ หน้าที่จับคู่ไม่ได้ (ตรวจสอบเอง):</div>
-              <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+              <div style={{overflowX:"auto",maxHeight:300,overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr><th style={C.th}>ไฟล์</th><th style={C.th}>หน้าที่</th><th style={C.th}>เลข/สาเหตุ</th></tr></thead>
+                  <thead><tr><th style={C.th}>ไฟล์</th><th style={C.th}>หน้าที่</th><th style={C.th}>เลข/สาเหตุ</th><th style={C.th}>ข้อความดิบ</th></tr></thead>
                   <tbody>
                     {result.unmatched.map((u,i)=>(
-                      <tr key={i}><td style={{...C.td,fontSize:11}}>{u.file}</td><td style={C.td}>{u.page}</td><td style={C.td}>{u.sn} — {u.reason}</td></tr>
+                      <UnmatchedRow key={i} u={u}/>
                     ))}
                   </tbody>
                 </table>
