@@ -439,6 +439,21 @@ function downloadOrOpenPdf(bytes, filename){
   window.open(url, "_blank");
 }
 
+async function buildSplitPdfMulti(filesBytes, items){
+  // items: [{fileIndex, pageIdx, sn}] — อาจมาจากหลายไฟล์ปนกัน
+  const { PDFDocument } = PDFLib;
+  const outDoc = await PDFDocument.create();
+  const srcDocCache = {};
+  for(const item of items){
+    if(!srcDocCache[item.fileIndex]){
+      srcDocCache[item.fileIndex] = await PDFDocument.load(filesBytes[item.fileIndex]);
+    }
+    const [copied] = await outDoc.copyPages(srcDocCache[item.fileIndex], [item.pageIdx]);
+    outDoc.addPage(copied);
+  }
+  return await outDoc.save();
+}
+
 function classifyOrderCategory(info){
   const itemText = (info.itemNames||"").toLowerCase().replace(/\s+/g,"");
   if(info.isFree){
@@ -456,23 +471,34 @@ function classifyOrderCategory(info){
 }
 
 function PdfSplitTab({t3,api}){
-  const [fileName,setFileName]=useState("");
+  const [fileNames,setFileNames]=useState([]);
   const [processing,setProcessing]=useState(false);
   const [result,setResult]=useState(null);
 
-  const handleFile=async(e)=>{
-    const file=e.target.files[0];
-    if(!file)return;
+  const handleFiles=async(e)=>{
+    const files=Array.from(e.target.files||[]);
+    if(files.length===0)return;
     if(typeof pdfjsLib==="undefined"||typeof PDFLib==="undefined"){
       t3("โหลดไลบรารีอ่าน PDF ไม่สำเร็จ ลองรีเฟรชหน้าใหม่","err");
       return;
     }
-    setFileName(file.name);
+    setFileNames(files.map(f=>f.name));
     setProcessing(true);
     setResult(null);
     try{
-      const arrayBuffer=await file.arrayBuffer();
-      const pageMap=await extractOrderSnPerPage(arrayBuffer.slice(0));
+      const filesBytes=[]; // เก็บ arrayBuffer ต้นฉบับของแต่ละไฟล์ไว้ตัด page ทีหลัง
+      const allPages=[]; // {fileIndex,pageIdx,sn}
+      let totalPagesCount=0;
+
+      for(let fi=0;fi<files.length;fi++){
+        const buf=await files[fi].arrayBuffer();
+        filesBytes.push(buf.slice(0));
+        const pageMap=await extractOrderSnPerPage(buf.slice(0));
+        Object.entries(pageMap).forEach(([pageIdxStr,sn])=>{
+          allPages.push({fileIndex:fi,pageIdx:Number(pageIdxStr),sn});
+          totalPagesCount++;
+        });
+      }
 
       const orderListRes=await api("/order-list");
       if(orderListRes.error){t3("โหลดผลตรวจสอบไม่สำเร็จ: "+orderListRes.error,"err");setProcessing(false);return;}
@@ -483,22 +509,21 @@ function PdfSplitTab({t3,api}){
       const alreadyPrintedPages=[];
       const unmatched=[];
 
-      Object.entries(pageMap).forEach(([pageIdxStr,sn])=>{
-        const pageIdx=Number(pageIdxStr);
-        if(!sn){unmatched.push({page:pageIdx+1,sn:"(อ่านเลขไม่พบ)"});return;}
-        const info=statusBySn[sn];
-        if(!info){unmatched.push({page:pageIdx+1,sn});return;}
+      for(const p of allPages){
+        if(!p.sn){unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:"(อ่านเลขไม่พบ)"});continue;}
+        const info=statusBySn[p.sn];
+        if(!info){unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn});continue;}
 
         const cat=classifyOrderCategory(info);
         if(info.printedAt){
-          alreadyPrintedPages.push({pageIdx,sn,printedAt:info.printedAt,categoryLabel:cat.label});
-          return;
+          alreadyPrintedPages.push({fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,printedAt:info.printedAt,categoryLabel:cat.label});
+          continue;
         }
-        groups[cat.group].push({pageIdx,sn,reason:cat.reason});
-      });
+        groups[cat.group].push({fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:cat.reason});
+      }
 
-      setResult({groups,alreadyPrintedPages,unmatched,originalBytes:arrayBuffer,totalPages:Object.keys(pageMap).length});
-      t3(`✅ วิเคราะห์เสร็จ: ${Object.keys(pageMap).length} หน้า | Free ${groups.free.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
+      setResult({groups,alreadyPrintedPages,unmatched,filesBytes,fileNamesUsed:files.map(f=>f.name),totalPages:totalPagesCount});
+      t3(`✅ วิเคราะห์เสร็จ (${files.length} ไฟล์, ${totalPagesCount} หน้า): Free ${groups.free.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
     }catch(err){
       t3("อ่านไฟล์ PDF ไม่สำเร็จ: "+err.message,"err");
     }
@@ -508,8 +533,7 @@ function PdfSplitTab({t3,api}){
   const exportGroup=async(items,label,markPrinted)=>{
     if(!result||items.length===0){t3("ไม่มีหน้าในกลุ่มนี้","warn");return;}
     try{
-      const pageIndices=items.map(it=>it.pageIdx);
-      const bytes=await buildSplitPdf(result.originalBytes,pageIndices);
+      const bytes=await buildSplitPdfMulti(result.filesBytes,items);
       downloadOrOpenPdf(bytes,label+".pdf");
       t3("✅ สร้างไฟล์ "+label+" สำเร็จ ("+items.length+" หน้า)");
 
@@ -529,16 +553,20 @@ function PdfSplitTab({t3,api}){
     <div style={C.card}>
       <div style={C.h3}>📎 แยกใบปะหน้าจากไฟล์ PDF (bulk export)</div>
       <div style={{fontSize:12,color:"#8b8fa8",marginBottom:12}}>
-        อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre (รวมหลายออเดอร์ในไฟล์เดียว)
-        ระบบจะอ่านเลขคำสั่งซื้อในแต่ละหน้า จับคู่กับผลตรวจสอบที่เคยทำไว้ (ต้องกด "ดึงคำสั่งซื้อใหม่ &amp; ตรวจสอบ"
-        ในแท็บตรวจสอบคำสั่งซื้อมาก่อน) แล้วแยกเป็น 4 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (สินค้ามีคำว่า Free/ฟรี),{" "}
+        อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre ได้ <b>ทีละหลายไฟล์พร้อมกัน</b> (รวมหลายออเดอร์ต่อไฟล์ได้ตามปกติ)
+        ระบบจะอ่านเลขคำสั่งซื้อในทุกหน้าของทุกไฟล์ จับคู่กับผลตรวจสอบที่เคยทำไว้ (ต้องกด "ดึงคำสั่งซื้อใหม่ &amp; ตรวจสอบ"
+        ในแท็บตรวจสอบคำสั่งซื้อมาก่อน) แล้วรวมทุกไฟล์แยกเป็น 4 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (สินค้ามีคำว่า Free/ฟรี),{" "}
         <b>ซิมพม่า</b> (ตัวเลือก 15M300/8M250/ซิมสมัครได้ทุกโปร ที่เข้าเงื่อนไข), <b>ซิมโดนใจ</b> (ตัวเลือกอื่นที่เข้าเงื่อนไข),
         และ <b>ซิมไม่เข้าเงื่อนไข</b> (ซ้ำที่อยู่/ผู้ซื้อ ไม่ว่าสินค้าใด พร้อมสรุปเหตุผล) — ออเดอร์ที่เคยพิมพ์ไปแล้วจะถูกแยกออกต่างหากกันพิมพ์ซ้ำ
       </div>
 
-      <input type="file" accept="application/pdf" onChange={handleFile}
+      <input type="file" accept="application/pdf" multiple onChange={handleFiles}
         style={{...C.inp,padding:8}} disabled={processing}/>
-      {fileName&&<div style={{fontSize:12,color:"#8b8fa8",marginTop:6}}>ไฟล์: {fileName}</div>}
+      {fileNames.length>0&&(
+        <div style={{fontSize:12,color:"#8b8fa8",marginTop:6}}>
+          ไฟล์ที่เลือก ({fileNames.length}): {fileNames.join(", ")}
+        </div>
+      )}
       {processing&&<div style={{fontSize:13,color:"#a78bfa",marginTop:10}}>กำลังวิเคราะห์ไฟล์...</div>}
 
       {result&&(
@@ -610,10 +638,10 @@ function PdfSplitTab({t3,api}){
               <div style={{fontSize:13,fontWeight:700,color:"#fbbf24",marginBottom:8}}>⚠️ หน้าที่จับคู่ไม่ได้ (ตรวจสอบเอง):</div>
               <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr><th style={C.th}>หน้าที่</th><th style={C.th}>เลขที่อ่านได้</th></tr></thead>
+                  <thead><tr><th style={C.th}>ไฟล์</th><th style={C.th}>หน้าที่</th><th style={C.th}>เลขที่อ่านได้</th></tr></thead>
                   <tbody>
                     {result.unmatched.map((u,i)=>(
-                      <tr key={i}><td style={C.td}>{u.page}</td><td style={C.td}>{u.sn}</td></tr>
+                      <tr key={i}><td style={{...C.td,fontSize:11}}>{u.file}</td><td style={C.td}>{u.page}</td><td style={C.td}>{u.sn}</td></tr>
                     ))}
                   </tbody>
                 </table>
