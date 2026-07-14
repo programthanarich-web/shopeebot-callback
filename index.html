@@ -439,10 +439,26 @@ function downloadOrOpenPdf(bytes, filename){
   window.open(url, "_blank");
 }
 
+function classifyOrderCategory(info){
+  const itemText = (info.itemNames||"").toLowerCase().replace(/\s+/g,"");
+  if(info.isFree){
+    return {group:"free", label:"ซิมฟรีเดือนแรก"};
+  }
+  if(info.status==="blocked"){
+    return {group:"blocked", label:"ซิมไม่เข้าเงื่อนไข", reason:info.reason||"ไม่ระบุเหตุผล"};
+  }
+  const myanmarKeywords=["15m300","8m250","ซิมสมัครได้ทุกโปร"];
+  const isMyanmar = myanmarKeywords.some(k=>itemText.includes(k.replace(/\s+/g,"")));
+  if(isMyanmar){
+    return {group:"myanmar", label:"ซิมพม่า"};
+  }
+  return {group:"donjai", label:"ซิมโดนใจ"};
+}
+
 function PdfSplitTab({t3,api}){
   const [fileName,setFileName]=useState("");
   const [processing,setProcessing]=useState(false);
-  const [result,setResult]=useState(null); // {okPages,blockedPages,unmatched,originalBytes}
+  const [result,setResult]=useState(null);
 
   const handleFile=async(e)=>{
     const file=e.target.files[0];
@@ -463,19 +479,26 @@ function PdfSplitTab({t3,api}){
       const statusBySn={};
       (orderListRes.orders||[]).forEach(o=>{statusBySn[o.orderSn]=o;});
 
-      const okPages=[],blockedPages=[],unmatched=[],alreadyPrintedPages=[];
+      const groups={free:[],myanmar:[],donjai:[],blocked:[]};
+      const alreadyPrintedPages=[];
+      const unmatched=[];
+
       Object.entries(pageMap).forEach(([pageIdxStr,sn])=>{
         const pageIdx=Number(pageIdxStr);
         if(!sn){unmatched.push({page:pageIdx+1,sn:"(อ่านเลขไม่พบ)"});return;}
         const info=statusBySn[sn];
         if(!info){unmatched.push({page:pageIdx+1,sn});return;}
-        if(info.printedAt){alreadyPrintedPages.push({pageIdx,sn,printedAt:info.printedAt});return;}
-        if(info.status==="ok")okPages.push({pageIdx,sn});
-        else blockedPages.push({pageIdx,sn});
+
+        const cat=classifyOrderCategory(info);
+        if(info.printedAt){
+          alreadyPrintedPages.push({pageIdx,sn,printedAt:info.printedAt,categoryLabel:cat.label});
+          return;
+        }
+        groups[cat.group].push({pageIdx,sn,reason:cat.reason});
       });
 
-      setResult({okPages,blockedPages,unmatched,alreadyPrintedPages,originalBytes:arrayBuffer,totalPages:Object.keys(pageMap).length});
-      t3(`✅ วิเคราะห์เสร็จ: ${Object.keys(pageMap).length} หน้า | ส่งจริง ${okPages.length} | ซองเปล่า ${blockedPages.length} | พิมพ์ไปแล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
+      setResult({groups,alreadyPrintedPages,unmatched,originalBytes:arrayBuffer,totalPages:Object.keys(pageMap).length});
+      t3(`✅ วิเคราะห์เสร็จ: ${Object.keys(pageMap).length} หน้า | Free ${groups.free.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
     }catch(err){
       t3("อ่านไฟล์ PDF ไม่สำเร็จ: "+err.message,"err");
     }
@@ -508,8 +531,9 @@ function PdfSplitTab({t3,api}){
       <div style={{fontSize:12,color:"#8b8fa8",marginBottom:12}}>
         อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre (รวมหลายออเดอร์ในไฟล์เดียว)
         ระบบจะอ่านเลขคำสั่งซื้อในแต่ละหน้า จับคู่กับผลตรวจสอบที่เคยทำไว้ (ต้องกด "ดึงคำสั่งซื้อใหม่ &amp; ตรวจสอบ"
-        ในแท็บตรวจสอบคำสั่งซื้อมาก่อน) แล้วแยกเป็นไฟล์ให้พิมพ์แยกกัน — ออเดอร์ที่เคยดาวน์โหลด/พิมพ์ไปแล้ว
-        จะถูกแยกออกมาต่างหากอัตโนมัติ กันพิมพ์ซ้ำโดยไม่ตั้งใจ
+        ในแท็บตรวจสอบคำสั่งซื้อมาก่อน) แล้วแยกเป็น 4 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (สินค้ามีคำว่า Free/ฟรี),{" "}
+        <b>ซิมพม่า</b> (ตัวเลือก 15M300/8M250/ซิมสมัครได้ทุกโปร ที่เข้าเงื่อนไข), <b>ซิมโดนใจ</b> (ตัวเลือกอื่นที่เข้าเงื่อนไข),
+        และ <b>ซิมไม่เข้าเงื่อนไข</b> (ซ้ำที่อยู่/ผู้ซื้อ ไม่ว่าสินค้าใด พร้อมสรุปเหตุผล) — ออเดอร์ที่เคยพิมพ์ไปแล้วจะถูกแยกออกต่างหากกันพิมพ์ซ้ำ
       </div>
 
       <input type="file" accept="application/pdf" onChange={handleFile}
@@ -521,20 +545,44 @@ function PdfSplitTab({t3,api}){
         <React.Fragment>
           <div style={{display:"flex",gap:16,fontSize:13,marginTop:16,flexWrap:"wrap"}}>
             <div>รวม: <b>{result.totalPages}</b> หน้า</div>
-            <div style={{color:"#6ee7b7"}}>ส่งซิมจริง: <b>{result.okPages.length}</b></div>
-            <div style={{color:"#f87171"}}>ส่งซองเปล่า: <b>{result.blockedPages.length}</b></div>
+            <div style={{color:"#a78bfa"}}>Free เดือนแรก: <b>{result.groups.free.length}</b></div>
+            <div style={{color:"#38bdf8"}}>ซิมพม่า: <b>{result.groups.myanmar.length}</b></div>
+            <div style={{color:"#6ee7b7"}}>ซิมโดนใจ: <b>{result.groups.donjai.length}</b></div>
+            <div style={{color:"#f87171"}}>ไม่เข้าเงื่อนไข: <b>{result.groups.blocked.length}</b></div>
             <div style={{color:"#64748b"}}>พิมพ์ไปแล้ว: <b>{result.alreadyPrintedPages.length}</b></div>
             <div style={{color:"#fbbf24"}}>จับคู่ไม่ได้: <b>{result.unmatched.length}</b></div>
           </div>
 
           <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
-            <button style={C.btnP} onClick={()=>exportGroup(result.okPages,"ใบปะหน้า_ส่งซิมจริง",true)} disabled={result.okPages.length===0}>
-              📄 ดาวน์โหลด/พิมพ์ ส่งซิมจริง ({result.okPages.length})
+            <button style={{...C.btnP,background:"linear-gradient(135deg,#7c3aed,#a78bfa)"}} onClick={()=>exportGroup(result.groups.free,"ใบปะหน้า_ซิมฟรีเดือนแรก",true)} disabled={result.groups.free.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ซิมฟรีเดือนแรก ({result.groups.free.length})
             </button>
-            <button style={{...C.btnP,background:"linear-gradient(135deg,#dc2626,#991b1b)"}} onClick={()=>exportGroup(result.blockedPages,"ใบปะหน้า_ส่งซองเปล่า",true)} disabled={result.blockedPages.length===0}>
-              📄 ดาวน์โหลด/พิมพ์ ส่งซองเปล่า ({result.blockedPages.length})
+            <button style={{...C.btnP,background:"linear-gradient(135deg,#0284c7,#38bdf8)"}} onClick={()=>exportGroup(result.groups.myanmar,"ใบปะหน้า_ซิมพม่า",true)} disabled={result.groups.myanmar.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ซิมพม่า ({result.groups.myanmar.length})
+            </button>
+            <button style={C.btnP} onClick={()=>exportGroup(result.groups.donjai,"ใบปะหน้า_ซิมโดนใจ",true)} disabled={result.groups.donjai.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ซิมโดนใจ ({result.groups.donjai.length})
+            </button>
+            <button style={{...C.btnP,background:"linear-gradient(135deg,#dc2626,#991b1b)"}} onClick={()=>exportGroup(result.groups.blocked,"ใบปะหน้า_ไม่เข้าเงื่อนไข",true)} disabled={result.groups.blocked.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ซิมไม่เข้าเงื่อนไข ({result.groups.blocked.length})
             </button>
           </div>
+
+          {result.groups.blocked.length>0&&(
+            <div style={{marginTop:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#f87171",marginBottom:8}}>❌ รายการที่ไม่เข้าเงื่อนไข พร้อมเหตุผล:</div>
+              <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr><th style={C.th}>Order SN</th><th style={C.th}>เหตุผลที่ไม่เข้าเงื่อนไข</th></tr></thead>
+                  <tbody>
+                    {result.groups.blocked.map((it,i)=>(
+                      <tr key={i}><td style={{...C.td,fontWeight:700}}>{it.sn}</td><td style={{...C.td,color:"#f87171"}}>{it.reason}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {result.alreadyPrintedPages.length>0&&(
             <div style={{marginTop:16}}>
@@ -546,10 +594,10 @@ function PdfSplitTab({t3,api}){
               </button>
               <div style={{overflowX:"auto",maxHeight:160,overflowY:"auto",marginTop:8}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr><th style={C.th}>Order SN</th><th style={C.th}>พิมพ์เมื่อ</th></tr></thead>
+                  <thead><tr><th style={C.th}>Order SN</th><th style={C.th}>กลุ่มเดิม</th><th style={C.th}>พิมพ์เมื่อ</th></tr></thead>
                   <tbody>
                     {result.alreadyPrintedPages.map((it,i)=>(
-                      <tr key={i}><td style={C.td}>{it.sn}</td><td style={C.td}>{new Date(it.printedAt).toLocaleString("th-TH")}</td></tr>
+                      <tr key={i}><td style={C.td}>{it.sn}</td><td style={C.td}>{it.categoryLabel}</td><td style={C.td}>{new Date(it.printedAt).toLocaleString("th-TH")}</td></tr>
                     ))}
                   </tbody>
                 </table>
