@@ -7,6 +7,8 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:linear-gradient(160deg,#0a0a1a,#0f172a,#1a0a2e);min-height:100vh;font-family:"Noto Sans Thai",Sarabun,sans-serif;color:white}
@@ -346,6 +348,7 @@ function OrderCheckTab({t3,api}){
                 <th style={C.th}>ที่อยู่</th>
                 <th style={C.th}>สถานะ</th>
                 <th style={C.th}>เหตุผล</th>
+                <th style={C.th}>พิมพ์แล้ว</th>
                 <th style={C.th}>ปรับสถานะ</th>
               </tr></thead>
               <tbody>
@@ -359,6 +362,9 @@ function OrderCheckTab({t3,api}){
                       {o.isFree&&<span style={{marginLeft:6,fontSize:10,background:"rgba(167,139,250,0.25)",color:"#a78bfa",padding:"2px 6px",borderRadius:6,fontWeight:700}}>FREE</span>}
                     </td>
                     <td style={{...C.td,fontSize:12,color:"#8b8fa8"}}>{o.reason||"-"}</td>
+                    <td style={{...C.td,fontSize:12,color:o.printedAt?"#6ee7b7":"#64748b"}}>
+                      {o.printedAt?new Date(o.printedAt).toLocaleString("th-TH"):"ยังไม่พิมพ์"}
+                    </td>
                     <td style={C.td}>
                       {o.status==="ok"
                         ?<button style={{...C.btnD}} onClick={()=>override(o.orderSn,"blocked")}>เปลี่ยนเป็นซองเปล่า</button>
@@ -394,6 +400,184 @@ function OrderCheckTab({t3,api}){
         </div>
       )}
     </React.Fragment>
+  );
+}
+
+// ---------- แยกไฟล์ PDF ใบปะหน้าตามผลตรวจสอบ (ok / blocked) ----------
+if (typeof pdfjsLib !== "undefined") {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+const ORDER_SN_REGEX = /Shopee\s*Order\s*No\.?\s*[:\s]*([A-Z0-9]{10,16})/i;
+
+async function extractOrderSnPerPage(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  const map = {}; // pageIndex(0-based) -> orderSn
+  for(let i=1;i<=pdf.numPages;i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map(it=>it.str).join(" ");
+    const m = text.match(ORDER_SN_REGEX);
+    map[i-1] = m ? m[1].toUpperCase() : null;
+  }
+  return map;
+}
+
+async function buildSplitPdf(originalBytes, pageIndices){
+  const { PDFDocument } = PDFLib;
+  const srcDoc = await PDFDocument.load(originalBytes);
+  const outDoc = await PDFDocument.create();
+  const copied = await outDoc.copyPages(srcDoc, pageIndices);
+  copied.forEach(p=>outDoc.addPage(p));
+  const bytes = await outDoc.save();
+  return bytes;
+}
+
+function downloadOrOpenPdf(bytes, filename){
+  const blob = new Blob([bytes], {type:"application/pdf"});
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+}
+
+function PdfSplitTab({t3,api}){
+  const [fileName,setFileName]=useState("");
+  const [processing,setProcessing]=useState(false);
+  const [result,setResult]=useState(null); // {okPages,blockedPages,unmatched,originalBytes}
+
+  const handleFile=async(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    if(typeof pdfjsLib==="undefined"||typeof PDFLib==="undefined"){
+      t3("โหลดไลบรารีอ่าน PDF ไม่สำเร็จ ลองรีเฟรชหน้าใหม่","err");
+      return;
+    }
+    setFileName(file.name);
+    setProcessing(true);
+    setResult(null);
+    try{
+      const arrayBuffer=await file.arrayBuffer();
+      const pageMap=await extractOrderSnPerPage(arrayBuffer.slice(0));
+
+      const orderListRes=await api("/order-list");
+      if(orderListRes.error){t3("โหลดผลตรวจสอบไม่สำเร็จ: "+orderListRes.error,"err");setProcessing(false);return;}
+      const statusBySn={};
+      (orderListRes.orders||[]).forEach(o=>{statusBySn[o.orderSn]=o;});
+
+      const okPages=[],blockedPages=[],unmatched=[],alreadyPrintedPages=[];
+      Object.entries(pageMap).forEach(([pageIdxStr,sn])=>{
+        const pageIdx=Number(pageIdxStr);
+        if(!sn){unmatched.push({page:pageIdx+1,sn:"(อ่านเลขไม่พบ)"});return;}
+        const info=statusBySn[sn];
+        if(!info){unmatched.push({page:pageIdx+1,sn});return;}
+        if(info.printedAt){alreadyPrintedPages.push({pageIdx,sn,printedAt:info.printedAt});return;}
+        if(info.status==="ok")okPages.push({pageIdx,sn});
+        else blockedPages.push({pageIdx,sn});
+      });
+
+      setResult({okPages,blockedPages,unmatched,alreadyPrintedPages,originalBytes:arrayBuffer,totalPages:Object.keys(pageMap).length});
+      t3(`✅ วิเคราะห์เสร็จ: ${Object.keys(pageMap).length} หน้า | ส่งจริง ${okPages.length} | ซองเปล่า ${blockedPages.length} | พิมพ์ไปแล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
+    }catch(err){
+      t3("อ่านไฟล์ PDF ไม่สำเร็จ: "+err.message,"err");
+    }
+    setProcessing(false);
+  };
+
+  const exportGroup=async(items,label,markPrinted)=>{
+    if(!result||items.length===0){t3("ไม่มีหน้าในกลุ่มนี้","warn");return;}
+    try{
+      const pageIndices=items.map(it=>it.pageIdx);
+      const bytes=await buildSplitPdf(result.originalBytes,pageIndices);
+      downloadOrOpenPdf(bytes,label+".pdf");
+      t3("✅ สร้างไฟล์ "+label+" สำเร็จ ("+items.length+" หน้า)");
+
+      if(markPrinted){
+        const sns=items.map(it=>it.sn);
+        const res=await api("/mark-printed",{method:"POST",body:JSON.stringify({orderSns:sns})});
+        if(!res.error){
+          t3("บันทึกแล้วว่า "+sns.length+" ออเดอร์นี้พิมพ์ไปแล้ว");
+        }
+      }
+    }catch(err){
+      t3("สร้างไฟล์ไม่สำเร็จ: "+err.message,"err");
+    }
+  };
+
+  return(
+    <div style={C.card}>
+      <div style={C.h3}>📎 แยกใบปะหน้าจากไฟล์ PDF (bulk export)</div>
+      <div style={{fontSize:12,color:"#8b8fa8",marginBottom:12}}>
+        อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre (รวมหลายออเดอร์ในไฟล์เดียว)
+        ระบบจะอ่านเลขคำสั่งซื้อในแต่ละหน้า จับคู่กับผลตรวจสอบที่เคยทำไว้ (ต้องกด "ดึงคำสั่งซื้อใหม่ &amp; ตรวจสอบ"
+        ในแท็บตรวจสอบคำสั่งซื้อมาก่อน) แล้วแยกเป็นไฟล์ให้พิมพ์แยกกัน — ออเดอร์ที่เคยดาวน์โหลด/พิมพ์ไปแล้ว
+        จะถูกแยกออกมาต่างหากอัตโนมัติ กันพิมพ์ซ้ำโดยไม่ตั้งใจ
+      </div>
+
+      <input type="file" accept="application/pdf" onChange={handleFile}
+        style={{...C.inp,padding:8}} disabled={processing}/>
+      {fileName&&<div style={{fontSize:12,color:"#8b8fa8",marginTop:6}}>ไฟล์: {fileName}</div>}
+      {processing&&<div style={{fontSize:13,color:"#a78bfa",marginTop:10}}>กำลังวิเคราะห์ไฟล์...</div>}
+
+      {result&&(
+        <React.Fragment>
+          <div style={{display:"flex",gap:16,fontSize:13,marginTop:16,flexWrap:"wrap"}}>
+            <div>รวม: <b>{result.totalPages}</b> หน้า</div>
+            <div style={{color:"#6ee7b7"}}>ส่งซิมจริง: <b>{result.okPages.length}</b></div>
+            <div style={{color:"#f87171"}}>ส่งซองเปล่า: <b>{result.blockedPages.length}</b></div>
+            <div style={{color:"#64748b"}}>พิมพ์ไปแล้ว: <b>{result.alreadyPrintedPages.length}</b></div>
+            <div style={{color:"#fbbf24"}}>จับคู่ไม่ได้: <b>{result.unmatched.length}</b></div>
+          </div>
+
+          <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
+            <button style={C.btnP} onClick={()=>exportGroup(result.okPages,"ใบปะหน้า_ส่งซิมจริง",true)} disabled={result.okPages.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ส่งซิมจริง ({result.okPages.length})
+            </button>
+            <button style={{...C.btnP,background:"linear-gradient(135deg,#dc2626,#991b1b)"}} onClick={()=>exportGroup(result.blockedPages,"ใบปะหน้า_ส่งซองเปล่า",true)} disabled={result.blockedPages.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ส่งซองเปล่า ({result.blockedPages.length})
+            </button>
+          </div>
+
+          {result.alreadyPrintedPages.length>0&&(
+            <div style={{marginTop:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:8}}>
+                🔁 ออเดอร์เหล่านี้เคยพิมพ์ไปแล้ว (แยกไว้กันพิมพ์ซ้ำ)
+              </div>
+              <button style={C.btnS} onClick={()=>exportGroup(result.alreadyPrintedPages,"ใบปะหน้า_พิมพ์ซ้ำ",false)}>
+                📄 ดาวน์โหลดอีกครั้งถ้าจำเป็น ({result.alreadyPrintedPages.length})
+              </button>
+              <div style={{overflowX:"auto",maxHeight:160,overflowY:"auto",marginTop:8}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr><th style={C.th}>Order SN</th><th style={C.th}>พิมพ์เมื่อ</th></tr></thead>
+                  <tbody>
+                    {result.alreadyPrintedPages.map((it,i)=>(
+                      <tr key={i}><td style={C.td}>{it.sn}</td><td style={C.td}>{new Date(it.printedAt).toLocaleString("th-TH")}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {result.unmatched.length>0&&(
+            <div style={{marginTop:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#fbbf24",marginBottom:8}}>⚠️ หน้าที่จับคู่ไม่ได้ (ตรวจสอบเอง):</div>
+              <div style={{overflowX:"auto",maxHeight:200,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr><th style={C.th}>หน้าที่</th><th style={C.th}>เลขที่อ่านได้</th></tr></thead>
+                  <tbody>
+                    {result.unmatched.map((u,i)=>(
+                      <tr key={i}><td style={C.td}>{u.page}</td><td style={C.td}>{u.sn}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{fontSize:11,color:"#8b8fa8",marginTop:6}}>
+                สาเหตุที่พบบ่อย: ยังไม่ได้กด "ดึงคำสั่งซื้อใหม่ &amp; ตรวจสอบ" สำหรับออเดอร์นี้ หรือรูปแบบใบปะหน้าจากขนส่งเจ้านี้ไม่ตรงกับที่ระบบคาดไว้
+              </div>
+            </div>
+          )}
+        </React.Fragment>
+      )}
+    </div>
   );
 }
 
@@ -554,6 +738,7 @@ function Dashboard(){
     {id:"stock",label:"📦 ปรับสต๊อก"},
     {id:"bulk",label:"📋 หลายรายการ"},
     {id:"orders",label:"🔍 ตรวจสอบคำสั่งซื้อ"},
+    {id:"pdfsplit",label:"📎 แยกใบปะหน้า PDF"},
     {id:"skulist",label:"🗂️ รายการ SKU"},
     {id:"history",label:"📊 ประวัติ ("+history.length+")"},
     {id:"settings",label:"⚙️ ตั้งค่า"},
@@ -609,6 +794,7 @@ function Dashboard(){
             {tab==="stock"&&<StockTab status={status} refreshStatus={refreshStatus} t3={t3} pushLocalHistory={refreshHistory} api={api}/>}
             {tab==="bulk"&&<BulkTab t3={t3} pushLocalHistory={refreshHistory} api={api}/>}
             {tab==="orders"&&<OrderCheckTab t3={t3} api={api}/>}
+            {tab==="pdfsplit"&&<PdfSplitTab t3={t3} api={api}/>}
             {tab==="skulist"&&<SkuListTab t3={t3} api={api}/>}
             {tab==="history"&&<HistoryTab history={history}/>}
             {tab==="settings"&&<SettingsTab info={info} onDisconnectWorker={disconnectWorker}/>}
