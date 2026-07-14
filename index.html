@@ -257,9 +257,22 @@ function cleanAddressText(raw){
     .trim();
 }
 
+/** ดึงข้อความ "ตัวเลือกสินค้า" แบบเจาะจง แทนการเทียบคำทั้งหน้า
+ *  สังเกตว่าในตารางสินค้า แต่ละแถวจะจบด้วยตัวเลขจำนวนสั้นๆ (เช่น "...TRUE2MB159(FREE) 1")
+ *  เก็บเฉพาะข้อความก่อนตัวเลขนั้นมาเป็นตัวเลือกสินค้า กันการเทียบคำผิดจากชื่อสินค้า/คำโฆษณา */
+function extractVariantCandidates(rawText){
+  const lines = (rawText||"").split("\n");
+  const candidates = [];
+  for(const line of lines){
+    const m = line.match(/(\S.{0,40}?)\s+\d{1,3}\s*$/);
+    if(m) candidates.push(m[1]);
+  }
+  return candidates.join(" | ");
+}
+
 async function extractPagesInfo(arrayBuffer){
   const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
-  const pages=[]; // {pageIdx, sn, address, isFree, pageTextLower}
+  const pages=[]; // {pageIdx, sn, address, isFree, hasRealProductSignal, variantTextLower}
   for(let i=1;i<=pdf.numPages;i++){
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
@@ -271,10 +284,18 @@ async function extractPagesInfo(arrayBuffer){
     const addrMatch = text.match(RECIPIENT_REGEX);
     const address = addrMatch ? cleanAddressText(addrMatch[1]) : null;
 
-    const pageTextLower = text.toLowerCase();
-    const isFree = /free/i.test(pageTextLower); // ใช้คำอังกฤษ "free" เท่านั้น กันชนกับคำไทยการตลาดเช่น "โทรฟรี"
+    const variantText = extractVariantCandidates(text);
+    const variantTextLower = variantText.toLowerCase();
+    const flat = variantTextLower.replace(/\s+/g,"");
 
-    pages.push({pageIdx:i-1, sn, address, isFree, pageTextLower, rawText:text});
+    const isFree = /free/i.test(variantTextLower); // เช็คจากตัวเลือกสินค้าเท่านั้น ไม่ใช่ทั้งหน้า
+    const aisKeywords=["ais","เอไอเอส"];
+    const myanmarKeywords=["15m300","8m250","ซิมสมัครได้ทุกโปร"];
+    const hasAis = aisKeywords.some(k=>flat.includes(k));
+    const hasMyanmar = myanmarKeywords.some(k=>flat.includes(k));
+    const hasRealProductSignal = hasAis || hasMyanmar;
+
+    pages.push({pageIdx:i-1, sn, address, isFree, hasAis, hasMyanmar, hasRealProductSignal, rawText:text});
   }
   return pages;
 }
@@ -306,13 +327,14 @@ function UnmatchedRow({u}){
   );
 }
 
-function classifyPage({isFree, duplicate, firstSeenOrderSn, pageTextLower}){
-  if(isFree) return {group:"free", label:"ซิมฟรีเดือนแรก"};
+function classifyPage({isFree, hasAis, hasMyanmar, hasRealProductSignal, duplicate, firstSeenOrderSn}){
+  // ยกเว้นการเช็คซ้ำเฉพาะกรณี Free ล้วนๆ เท่านั้น — ถ้าในใบเดียวกันมีตัวเลือกสินค้าจริงปนอยู่ด้วย
+  // (เช่นสั่ง Free 1 ตัวเลือก + สินค้าจริงอีก 1 ตัวเลือกในออเดอร์เดียวกัน) ต้องเช็คซ้ำตามปกติ ไม่ยกเว้น
+  const isFreeOnly = isFree && !hasRealProductSignal;
+  if(isFreeOnly) return {group:"free", label:"ซิมฟรีเดือนแรก"};
   if(duplicate) return {group:"blocked", label:"ซิมไม่เข้าเงื่อนไข", reason:"ที่อยู่นี้เคยส่งสินค้าไปแล้ว (ออเดอร์แรก: "+firstSeenOrderSn+")"};
-  const myanmarKeywords=["15m300","8m250","ซิมสมัครได้ทุกโปร"];
-  const flat=(pageTextLower||"").replace(/\s+/g,"");
-  const isMyanmar=myanmarKeywords.some(k=>flat.includes(k.replace(/\s+/g,"")));
-  if(isMyanmar) return {group:"myanmar", label:"ซิมพม่า"};
+  if(hasAis) return {group:"ais", label:"ซิมเอไอเอส"};
+  if(hasMyanmar) return {group:"myanmar", label:"ซิมพม่า"};
   return {group:"donjai", label:"ซิมโดนใจ"};
 }
 
@@ -354,7 +376,7 @@ function PdfSplitTab({t3,api}){
     setResult(null);
     try{
       const filesBytes=[];
-      const allPages=[]; // {fileIndex,pageIdx,sn,address,isFree,pageTextLower}
+      const allPages=[]; // {fileIndex,pageIdx,sn,address,isFree,hasAis,hasMyanmar,hasRealProductSignal}
       let totalPagesCount=0;
 
       for(let fi=0;fi<files.length;fi++){
@@ -374,10 +396,11 @@ function PdfSplitTab({t3,api}){
         validPages.push(p);
       });
 
-      const freePages=validPages.filter(p=>p.isFree);
-      const nonFreePages=validPages.filter(p=>!p.isFree);
+      const withFreeOnlyFlag = validPages.map(p=>({...p, isFreeOnly: p.isFree && !p.hasRealProductSignal}));
+      const freePages=withFreeOnlyFlag.filter(p=>p.isFreeOnly);
+      const nonFreePages=withFreeOnlyFlag.filter(p=>!p.isFreeOnly);
 
-      // เช็คที่อยู่ซ้ำเฉพาะรายการที่ไม่ใช่ Free (Free ไม่นับโควต้า ไม่บันทึกลงประวัติที่อยู่)
+      // เช็คที่อยู่ซ้ำสำหรับทุกรายการที่ไม่ใช่ Free ล้วนๆ (รวมออเดอร์ผสม Free+สินค้าจริงด้วย)
       let addressResults={};
       if(nonFreePages.length>0){
         const res=await api("/check-addresses",{method:"POST",body:JSON.stringify({
@@ -393,12 +416,12 @@ function PdfSplitTab({t3,api}){
         if(!res.error) freePrintedMap=res.printedAt||{};
       }
 
-      const groups={free:[],myanmar:[],donjai:[],blocked:[]};
+      const groups={free:[],ais:[],myanmar:[],donjai:[],blocked:[]};
       const alreadyPrintedPages=[];
 
       nonFreePages.forEach(p=>{
         const ar=addressResults[p.sn]||{};
-        const cat=classifyPage({isFree:false, duplicate:ar.duplicate, firstSeenOrderSn:ar.firstSeenOrderSn, pageTextLower:p.pageTextLower});
+        const cat=classifyPage({isFree:p.isFree, hasAis:p.hasAis, hasMyanmar:p.hasMyanmar, hasRealProductSignal:p.hasRealProductSignal, duplicate:ar.duplicate, firstSeenOrderSn:ar.firstSeenOrderSn});
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:cat.reason};
         if(ar.printedAt){
           alreadyPrintedPages.push({...item,printedAt:ar.printedAt,categoryLabel:cat.label});
@@ -418,7 +441,7 @@ function PdfSplitTab({t3,api}){
       });
 
       setResult({groups,alreadyPrintedPages,unmatched,filesBytes,totalPages:totalPagesCount});
-      t3(`✅ วิเคราะห์เสร็จ (${files.length} ไฟล์, ${totalPagesCount} หน้า): Free ${groups.free.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
+      t3(`✅ วิเคราะห์เสร็จ (${files.length} ไฟล์, ${totalPagesCount} หน้า): Free ${groups.free.length} | เอไอเอส ${groups.ais.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
     }catch(err){
       t3("อ่านไฟล์ PDF ไม่สำเร็จ: "+err.message,"err");
     }
@@ -450,8 +473,8 @@ function PdfSplitTab({t3,api}){
       <div style={{fontSize:12,color:"#8b8fa8",marginBottom:12}}>
         อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre ได้ <b>ทีละหลายไฟล์พร้อมกัน</b>
         ระบบอ่าน<b>ที่อยู่ผู้รับ (TO)</b> และเลขคำสั่งซื้อตรงจากไฟล์ PDF เลย <b>ไม่ต้องเชื่อมต่อ Shopee</b>
-        แล้วแยกเป็น 4 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (มีคำว่า FREE ในหน้า),{" "}
-        <b>ซิมพม่า</b> (ตัวเลือก 15M300/8M250/ซิมสมัครได้ทุกโปร ที่ไม่ซ้ำที่อยู่), <b>ซิมโดนใจ</b> (ตัวเลือกอื่นที่ไม่ซ้ำที่อยู่),
+        แล้วแยกเป็น 5 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (ตัวเลือกมีคำว่า FREE เท่านั้น ไม่มีตัวเลือกจริงปน),{" "}
+        <b>ซิมเอไอเอส</b> (ตัวเลือกมี AIS/เอไอเอส), <b>ซิมพม่า</b> (ตัวเลือก 15M300/8M250/ซิมสมัครได้ทุกโปร), <b>ซิมโดนใจ</b> (ตัวเลือกอื่น),
         และ <b>ซิมไม่เข้าเงื่อนไข</b> (ที่อยู่ผู้รับซ้ำกับออเดอร์ก่อนหน้า) — ออเดอร์ที่เคยพิมพ์ไปแล้วจะถูกแยกออกต่างหากกันพิมพ์ซ้ำ
       </div>
 
@@ -469,6 +492,7 @@ function PdfSplitTab({t3,api}){
           <div style={{display:"flex",gap:16,fontSize:13,marginTop:16,flexWrap:"wrap"}}>
             <div>รวม: <b>{result.totalPages}</b> หน้า</div>
             <div style={{color:"#a78bfa"}}>Free เดือนแรก: <b>{result.groups.free.length}</b></div>
+            <div style={{color:"#34d399"}}>ซิมเอไอเอส: <b>{result.groups.ais.length}</b></div>
             <div style={{color:"#38bdf8"}}>ซิมพม่า: <b>{result.groups.myanmar.length}</b></div>
             <div style={{color:"#6ee7b7"}}>ซิมโดนใจ: <b>{result.groups.donjai.length}</b></div>
             <div style={{color:"#f87171"}}>ไม่เข้าเงื่อนไข: <b>{result.groups.blocked.length}</b></div>
@@ -479,6 +503,9 @@ function PdfSplitTab({t3,api}){
           <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
             <button style={{...C.btnP,background:"linear-gradient(135deg,#7c3aed,#a78bfa)"}} onClick={()=>exportGroup(result.groups.free,"ใบปะหน้า_ซิมฟรีเดือนแรก",true)} disabled={result.groups.free.length===0}>
               📄 ดาวน์โหลด/พิมพ์ ซิมฟรีเดือนแรก ({result.groups.free.length})
+            </button>
+            <button style={{...C.btnP,background:"linear-gradient(135deg,#059669,#34d399)"}} onClick={()=>exportGroup(result.groups.ais,"ใบปะหน้า_ซิมเอไอเอส",true)} disabled={result.groups.ais.length===0}>
+              📄 ดาวน์โหลด/พิมพ์ ซิมเอไอเอส ({result.groups.ais.length})
             </button>
             <button style={{...C.btnP,background:"linear-gradient(135deg,#0284c7,#38bdf8)"}} onClick={()=>exportGroup(result.groups.myanmar,"ใบปะหน้า_ซิมพม่า",true)} disabled={result.groups.myanmar.length===0}>
               📄 ดาวน์โหลด/พิมพ์ ซิมพม่า ({result.groups.myanmar.length})
