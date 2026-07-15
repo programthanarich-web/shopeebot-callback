@@ -257,6 +257,11 @@ function cleanAddressText(raw){
     .trim();
 }
 
+/** เหมือน normalizeAddress ฝั่ง Worker ใช้เช็คที่อยู่ซ้ำกันเองภายในไฟล์ชุดที่อัปโหลดพร้อมกัน */
+function normalizeAddressClient(addr){
+  return (addr||"").toLowerCase().replace(/[\s,.\-]+/g," ").trim();
+}
+
 /** ดึงข้อความ "ตัวเลือกสินค้า" แบบเจาะจง แทนการเทียบคำทั้งหน้า
  *  สังเกตว่าในตารางสินค้า แต่ละแถวจะจบด้วยตัวเลขจำนวนสั้นๆ (เช่น "...TRUE2MB159(FREE) 1")
  *  เก็บเฉพาะข้อความก่อนตัวเลขนั้นมาเป็นตัวเลือกสินค้า กันการเทียบคำผิดจากชื่อสินค้า/คำโฆษณา */
@@ -416,15 +421,30 @@ function PdfSplitTab({t3,api}){
         if(!res.error) freePrintedMap=res.printedAt||{};
       }
 
+      // เช็คที่อยู่ซ้ำกันเองภายในไฟล์ชุดที่อัปโหลดพร้อมกันด้วย — ถ้าซ้ำ ให้ไปกลุ่ม
+      // "ไม่เข้าเงื่อนไข" ทั้งหมดทุกใบ (รวมใบแรกด้วย ไม่ใช่แค่ใบหลังๆ)
+      const addressCounts={};
+      nonFreePages.forEach(p=>{
+        const key=normalizeAddressClient(p.address);
+        addressCounts[key]=(addressCounts[key]||0)+1;
+      });
+
       const groups={free:[],ais:[],myanmar:[],donjai:[],blocked:[]};
       const alreadyPrintedPages=[];
       const debugRows=[];
 
       nonFreePages.forEach(p=>{
         const ar=addressResults[p.sn]||{};
-        const cat=classifyPage({isFree:p.isFree, hasAis:p.hasAis, hasMyanmar:p.hasMyanmar, hasRealProductSignal:p.hasRealProductSignal, duplicate:ar.duplicate, firstSeenOrderSn:ar.firstSeenOrderSn});
+        const addrKey=normalizeAddressClient(p.address);
+        const dupInBatch=addressCounts[addrKey]>1;
+        const duplicate=ar.duplicate||dupInBatch;
+        const reasonOverride = !ar.duplicate && dupInBatch
+          ? "ที่อยู่นี้ซ้ำกับคำสั่งซื้ออื่นในไฟล์ที่อัปโหลดพร้อมกัน"
+          : undefined;
+        const cat=classifyPage({isFree:p.isFree, hasAis:p.hasAis, hasMyanmar:p.hasMyanmar, hasRealProductSignal:p.hasRealProductSignal, duplicate, firstSeenOrderSn:ar.firstSeenOrderSn});
+        if(reasonOverride) cat.reason=reasonOverride;
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:cat.reason};
-        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:ar.duplicate,printedAt:ar.printedAt,group:cat.group,variantText:p.variantText,address:p.address});
+        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate,printedAt:ar.printedAt,group:cat.group,variantText:p.variantText,address:p.address});
         if(ar.printedAt){
           alreadyPrintedPages.push({...item,printedAt:ar.printedAt,categoryLabel:cat.label,group:cat.group});
         }else{
