@@ -368,6 +368,16 @@ function PdfSplitTab({t3,api}){
   const [fileNames,setFileNames]=useState([]);
   const [processing,setProcessing]=useState(false);
   const [result,setResult]=useState(null);
+  const [checkingShopee,setCheckingShopee]=useState(false);
+
+  const runShopeeCheck=async()=>{
+    setCheckingShopee(true);
+    t3("กำลังดึงคำสั่งซื้อจาก Shopee มาตรวจสอบ...");
+    const res=await api("/check-shopee-orders",{method:"POST",body:JSON.stringify({daysBack:30})});
+    setCheckingShopee(false);
+    if(res.error||!res.ok){t3("ดึงคำสั่งซื้อจาก Shopee ไม่สำเร็จ: "+(res.error||"unknown"),"err");return;}
+    t3(`✅ ตรวจสอบจาก Shopee เสร็จ: รวม ${res.total} | Free ${res.free} | เอไอเอส ${res.ais} | พม่า ${res.myanmar} | โดนใจ ${res.donjai} | ไม่เข้าเงื่อนไข ${res.blocked}`);
+  };
 
   const handleFiles=async(e)=>{
     const files=Array.from(e.target.files||[]);
@@ -392,10 +402,30 @@ function PdfSplitTab({t3,api}){
       }
 
       const unmatched=[];
-      const validPages=[];
+      const withSn=[];
       allPages.forEach(p=>{
-        if(!p.sn||!p.address){
-          unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn||"(อ่านเลขไม่พบ)",reason:!p.sn?"หาเลขคำสั่งซื้อไม่พบ":"หาที่อยู่ผู้รับไม่พบ",rawText:p.rawText});
+        if(!p.sn){
+          unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:"(อ่านเลขไม่พบ)",reason:"หาเลขคำสั่งซื้อไม่พบ",rawText:p.rawText});
+          return;
+        }
+        withSn.push(p);
+      });
+
+      // ขั้นแรก: เช็คว่ามีข้อมูลที่ดึงมาจาก Shopee API ไว้ล่วงหน้าแล้วหรือยัง (แม่นกว่าอ่าน PDF)
+      let shopeeStatusMap={};
+      if(withSn.length>0){
+        const res=await api("/shopee-order-status",{method:"POST",body:JSON.stringify({orderSns:withSn.map(p=>p.sn)})});
+        if(!res.error) shopeeStatusMap=res.statusMap||{};
+      }
+
+      const preChecked=withSn.filter(p=>shopeeStatusMap[p.sn]);
+      const needsFallback=withSn.filter(p=>!shopeeStatusMap[p.sn]);
+
+      // สำหรับที่ไม่มีข้อมูล Shopee ล่วงหน้า ต้องพึ่งการอ่านที่อยู่จาก PDF เหมือนเดิม
+      const validPages=[];
+      needsFallback.forEach(p=>{
+        if(!p.address){
+          unmatched.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,reason:"หาที่อยู่ผู้รับไม่พบ (และไม่มีข้อมูลจาก Shopee ล่วงหน้า)",rawText:p.rawText});
           return;
         }
         validPages.push(p);
@@ -415,10 +445,11 @@ function PdfSplitTab({t3,api}){
         (res.results||[]).forEach(r=>{addressResults[r.orderSn]=r;});
       }
 
-      let freePrintedMap={};
-      if(freePages.length>0){
-        const res=await api("/printed-status",{method:"POST",body:JSON.stringify({orderSns:freePages.map(p=>p.sn)})});
-        if(!res.error) freePrintedMap=res.printedAt||{};
+      // เช็คสถานะพิมพ์แล้วสำหรับทุกรายการที่มี sn (ทั้งที่มี precheck และ fallback)
+      let printedMap={};
+      if(withSn.length>0){
+        const res=await api("/printed-status",{method:"POST",body:JSON.stringify({orderSns:withSn.map(p=>p.sn)})});
+        if(!res.error) printedMap=res.printedAt||{};
       }
 
       // เช็คที่อยู่ซ้ำกันเองภายในไฟล์ชุดที่อัปโหลดพร้อมกันด้วย — ถ้าซ้ำ ให้ไปกลุ่ม
@@ -432,7 +463,22 @@ function PdfSplitTab({t3,api}){
       const groups={free:[],ais:[],myanmar:[],donjai:[],blocked:[]};
       const alreadyPrintedPages=[];
       const debugRows=[];
+      let preCheckedCount=preChecked.length;
 
+      // 1) รายการที่มีข้อมูลจาก Shopee ล่วงหน้า — ใช้ผลตรงจากที่ดึงมา ไม่ต้องอ่าน PDF อีก
+      preChecked.forEach(p=>{
+        const sc=shopeeStatusMap[p.sn];
+        const printedAt=printedMap[p.sn];
+        const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:sc.reason};
+        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,source:"shopee-api",group:sc.group,printedAt,address:sc.address,variantText:sc.itemNames});
+        if(printedAt){
+          alreadyPrintedPages.push({...item,printedAt,categoryLabel:sc.label,group:sc.group});
+        }else{
+          groups[sc.group].push(item);
+        }
+      });
+
+      // 2) รายการที่ต้องอ่านจาก PDF เอง (fallback)
       nonFreePages.forEach(p=>{
         const ar=addressResults[p.sn]||{};
         const addrKey=normalizeAddressClient(p.address);
@@ -443,10 +489,11 @@ function PdfSplitTab({t3,api}){
           : undefined;
         const cat=classifyPage({isFree:p.isFree, hasAis:p.hasAis, hasMyanmar:p.hasMyanmar, hasRealProductSignal:p.hasRealProductSignal, duplicate, firstSeenOrderSn:ar.firstSeenOrderSn});
         if(reasonOverride) cat.reason=reasonOverride;
+        const printedAt=printedMap[p.sn];
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:cat.reason};
-        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate,printedAt:ar.printedAt,group:cat.group,variantText:p.variantText,address:p.address});
-        if(ar.printedAt){
-          alreadyPrintedPages.push({...item,printedAt:ar.printedAt,categoryLabel:cat.label,group:cat.group});
+        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,source:"pdf-fallback",isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate,printedAt,group:cat.group,variantText:p.variantText,address:p.address});
+        if(printedAt){
+          alreadyPrintedPages.push({...item,printedAt,categoryLabel:cat.label,group:cat.group});
         }else{
           groups[cat.group].push(item);
         }
@@ -454,8 +501,8 @@ function PdfSplitTab({t3,api}){
 
       freePages.forEach(p=>{
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn};
-        const printedAt=freePrintedMap[p.sn];
-        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:false,printedAt,group:"free",variantText:p.variantText,address:p.address});
+        const printedAt=printedMap[p.sn];
+        debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,source:"pdf-fallback",isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:false,printedAt,group:"free",variantText:p.variantText,address:p.address});
         if(printedAt){
           alreadyPrintedPages.push({...item,printedAt,categoryLabel:"ซิมฟรีเดือนแรก",group:"free"});
         }else{
@@ -463,8 +510,8 @@ function PdfSplitTab({t3,api}){
         }
       });
 
-      setResult({groups,alreadyPrintedPages,unmatched,filesBytes,totalPages:totalPagesCount,debugRows});
-      t3(`✅ วิเคราะห์เสร็จ (${files.length} ไฟล์, ${totalPagesCount} หน้า): Free ${groups.free.length} | เอไอเอส ${groups.ais.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
+      setResult({groups,alreadyPrintedPages,unmatched,filesBytes,totalPages:totalPagesCount,debugRows,preCheckedCount});
+      t3(`✅ วิเคราะห์เสร็จ (${files.length} ไฟล์, ${totalPagesCount} หน้า, ใช้ข้อมูล Shopee ล่วงหน้า ${preCheckedCount} รายการ): Free ${groups.free.length} | เอไอเอส ${groups.ais.length} | พม่า ${groups.myanmar.length} | โดนใจ ${groups.donjai.length} | ไม่เข้าเงื่อนไข ${groups.blocked.length} | พิมพ์แล้ว ${alreadyPrintedPages.length} | จับคู่ไม่ได้ ${unmatched.length}`);
     }catch(err){
       t3("อ่านไฟล์ PDF ไม่สำเร็จ: "+err.message,"err");
     }
@@ -532,11 +579,15 @@ function PdfSplitTab({t3,api}){
       <div style={C.h3}>📎 แยกใบปะหน้าจากไฟล์ PDF (bulk export)</div>
       <div style={{fontSize:12,color:"#8b8fa8",marginBottom:12}}>
         อัปโหลดไฟล์ PDF ใบปะหน้าที่ปริ้น/ส่งออกจาก Shopee Seller Centre ได้ <b>ทีละหลายไฟล์พร้อมกัน</b>
-        ระบบอ่าน<b>ที่อยู่ผู้รับ (TO)</b> และเลขคำสั่งซื้อตรงจากไฟล์ PDF เลย <b>ไม่ต้องเชื่อมต่อ Shopee</b>
-        แล้วแยกเป็น 5 กลุ่มอัตโนมัติ: <b>ซิมฟรีเดือนแรก</b> (ตัวเลือกมีคำว่า FREE เท่านั้น ไม่มีตัวเลือกจริงปน),{" "}
-        <b>ซิมเอไอเอส</b> (ตัวเลือกมี AIS/เอไอเอส), <b>ซิมพม่า</b> (ตัวเลือก 15M300/8M250/ซิมสมัครได้ทุกโปร), <b>ซิมโดนใจ</b> (ตัวเลือกอื่น),
-        และ <b>ซิมไม่เข้าเงื่อนไข</b> (ที่อยู่ผู้รับซ้ำกับออเดอร์ก่อนหน้า) — ออเดอร์ที่เคยพิมพ์ไปแล้วจะถูกแยกออกต่างหากกันพิมพ์ซ้ำ
+        {" "}<b>แนะนำ: กดปุ่ม "ดึงคำสั่งซื้อจาก Shopee มาตรวจสอบ" ด้านล่างก่อนเสมอ</b> — จะได้ข้อมูลที่อยู่/ตัวเลือกสินค้า
+        ตรงจาก Shopee (แม่นกว่าอ่าน PDF มาก) ถ้าไม่กดหรือหาไม่เจอ ระบบจะ fallback ไปอ่านที่อยู่ผู้รับ (TO) จากไฟล์ PDF แทนอัตโนมัติ
+        แล้วแยกเป็น 5 กลุ่ม: <b>ซิมฟรีเดือนแรก</b>, <b>ซิมเอไอเอส</b>, <b>ซิมพม่า</b> (15M300/8M250/ซิมสมัครได้ทุกโปร),{" "}
+        <b>ซิมโดนใจ</b> (ตัวเลือกอื่น), และ <b>ซิมไม่เข้าเงื่อนไข</b> (ที่อยู่ผู้รับซ้ำ) — ออเดอร์ที่เคยพิมพ์ไปแล้วจะถูกแยกออกต่างหากกันพิมพ์ซ้ำ
       </div>
+
+      <button style={{...C.btnP,background:"linear-gradient(135deg,#0891b2,#06b6d4)",opacity:checkingShopee?0.6:1,marginBottom:14}} disabled={checkingShopee} onClick={runShopeeCheck}>
+        {checkingShopee?"กำลังดึงจาก Shopee...":"🔄 ดึงคำสั่งซื้อจาก Shopee มาตรวจสอบล่วงหน้า (ย้อนหลัง 30 วัน)"}
+      </button>
 
       <input type="file" accept="application/pdf" multiple onChange={handleFiles}
         style={{...C.inp,padding:8}} disabled={processing}/>
