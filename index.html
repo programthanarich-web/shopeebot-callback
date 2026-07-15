@@ -426,7 +426,7 @@ function PdfSplitTab({t3,api}){
         const item={fileIndex:p.fileIndex,pageIdx:p.pageIdx,sn:p.sn,reason:cat.reason};
         debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:ar.duplicate,printedAt:ar.printedAt,group:cat.group,variantText:p.variantText,address:p.address});
         if(ar.printedAt){
-          alreadyPrintedPages.push({...item,printedAt:ar.printedAt,categoryLabel:cat.label});
+          alreadyPrintedPages.push({...item,printedAt:ar.printedAt,categoryLabel:cat.label,group:cat.group});
         }else{
           groups[cat.group].push(item);
         }
@@ -437,7 +437,7 @@ function PdfSplitTab({t3,api}){
         const printedAt=freePrintedMap[p.sn];
         debugRows.push({file:files[p.fileIndex].name,page:p.pageIdx+1,sn:p.sn,isFree:p.isFree,hasAis:p.hasAis,hasMyanmar:p.hasMyanmar,hasRealProductSignal:p.hasRealProductSignal,duplicate:false,printedAt,group:"free",variantText:p.variantText,address:p.address});
         if(printedAt){
-          alreadyPrintedPages.push({...item,printedAt,categoryLabel:"ซิมฟรีเดือนแรก"});
+          alreadyPrintedPages.push({...item,printedAt,categoryLabel:"ซิมฟรีเดือนแรก",group:"free"});
         }else{
           groups.free.push(item);
         }
@@ -468,6 +468,27 @@ function PdfSplitTab({t3,api}){
     }catch(err){
       t3("สร้างไฟล์ไม่สำเร็จ: "+err.message,"err");
     }
+  };
+
+  const unmarkPrinted=async(sns)=>{
+    if(!sns||sns.length===0)return;
+    const res=await api("/unmark-printed",{method:"POST",body:JSON.stringify({orderSns:sns})});
+    if(res.error||!res.ok){t3("คืนสถานะไม่สำเร็จ: "+(res.error||"unknown"),"err");return;}
+    t3("คืนสถานะ "+sns.length+" ออเดอร์เป็นยังไม่พิมพ์แล้ว");
+
+    setResult(prev=>{
+      if(!prev)return prev;
+      const snSet=new Set(sns);
+      const movedBack=prev.alreadyPrintedPages.filter(it=>snSet.has(it.sn));
+      const remaining=prev.alreadyPrintedPages.filter(it=>!snSet.has(it.sn));
+      const newGroups={...prev.groups};
+      Object.keys(newGroups).forEach(k=>{newGroups[k]=[...newGroups[k]];});
+      movedBack.forEach(it=>{
+        const {printedAt,categoryLabel,group,...item}=it;
+        if(newGroups[group]) newGroups[group].push(item);
+      });
+      return {...prev, alreadyPrintedPages:remaining, groups:newGroups};
+    });
   };
 
   const exportDebugInfo=()=>{
@@ -559,15 +580,25 @@ function PdfSplitTab({t3,api}){
               <div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:8}}>
                 🔁 ออเดอร์เหล่านี้เคยพิมพ์ไปแล้ว (แยกไว้กันพิมพ์ซ้ำ)
               </div>
-              <button style={C.btnS} onClick={()=>exportGroup(result.alreadyPrintedPages,"ใบปะหน้า_พิมพ์ซ้ำ",false)}>
-                📄 ดาวน์โหลดอีกครั้งถ้าจำเป็น ({result.alreadyPrintedPages.length})
-              </button>
-              <div style={{overflowX:"auto",maxHeight:160,overflowY:"auto",marginTop:8}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button style={C.btnS} onClick={()=>exportGroup(result.alreadyPrintedPages,"ใบปะหน้า_พิมพ์ซ้ำ",false)}>
+                  📄 ดาวน์โหลดอีกครั้งถ้าจำเป็น ({result.alreadyPrintedPages.length})
+                </button>
+                <button style={{...C.btnS,color:"#fbbf24",borderColor:"rgba(251,191,36,0.3)"}} onClick={()=>unmarkPrinted(result.alreadyPrintedPages.map(it=>it.sn))}>
+                  ↩️ คืนทั้งหมดเป็นยังไม่พิมพ์
+                </button>
+              </div>
+              <div style={{overflowX:"auto",maxHeight:220,overflowY:"auto",marginTop:8}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr><th style={C.th}>Order SN</th><th style={C.th}>กลุ่มเดิม</th><th style={C.th}>พิมพ์เมื่อ</th></tr></thead>
+                  <thead><tr><th style={C.th}>Order SN</th><th style={C.th}>กลุ่มเดิม</th><th style={C.th}>พิมพ์เมื่อ</th><th style={C.th}>คืนสถานะ</th></tr></thead>
                   <tbody>
                     {result.alreadyPrintedPages.map((it,i)=>(
-                      <tr key={i}><td style={C.td}>{it.sn}</td><td style={C.td}>{it.categoryLabel}</td><td style={C.td}>{new Date(it.printedAt).toLocaleString("th-TH")}</td></tr>
+                      <tr key={i}>
+                        <td style={C.td}>{it.sn}</td>
+                        <td style={C.td}>{it.categoryLabel}</td>
+                        <td style={C.td}>{new Date(it.printedAt).toLocaleString("th-TH")}</td>
+                        <td style={C.td}><button style={{...C.btnS,padding:"3px 8px",fontSize:11}} onClick={()=>unmarkPrinted([it.sn])}>คืนเป็นยังไม่พิมพ์</button></td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
