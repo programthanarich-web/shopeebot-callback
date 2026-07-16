@@ -125,6 +125,19 @@ function StockTab({status,refreshStatus,t3,pushLocalHistory,api}){
   const [qty,setQty]=useState("");
   const [busy,setBusy]=useState(false);
   const [mapBusy,setMapBusy]=useState(false);
+  const [skuList,setSkuList]=useState(null);
+  const [search,setSearch]=useState("");
+  const [loadingList,setLoadingList]=useState(false);
+
+  const loadSkuList=async()=>{
+    setLoadingList(true);
+    const res=await api("/sku-list");
+    setLoadingList(false);
+    if(res.error){t3("โหลดรายการ SKU ไม่สำเร็จ: "+res.error,"err");return;}
+    setSkuList(res.skus||[]);
+  };
+
+  useEffect(()=>{ loadSkuList(); },[]);
 
   const rebuildMap=async()=>{
     setMapBusy(true);
@@ -134,6 +147,7 @@ function StockTab({status,refreshStatus,t3,pushLocalHistory,api}){
     if(res.error){t3("ผิดพลาด: "+res.error,"err");return;}
     t3("✅ ดึงรายชื่อสินค้าสำเร็จ: "+res.skuCount+" SKU");
     refreshStatus();
+    loadSkuList();
   };
 
   const updateOne=async()=>{
@@ -144,8 +158,13 @@ function StockTab({status,refreshStatus,t3,pushLocalHistory,api}){
     if(res.ok){t3("✅ "+sku+" -> "+qty+" สำเร็จ");}
     else{t3("✗ "+sku+" ล้มเหลว: "+res.error,"err");}
     pushLocalHistory();
+    loadSkuList();
     setSku("");setQty("");
   };
+
+  const filtered=(skuList||[]).filter(s=>
+    !search || s.sku.toLowerCase().includes(search.toLowerCase()) || (s.name||"").toLowerCase().includes(search.toLowerCase())
+  );
 
   return(
     <React.Fragment>
@@ -168,6 +187,44 @@ function StockTab({status,refreshStatus,t3,pushLocalHistory,api}){
           </div>
         </div>
         <button style={{...C.btnP,marginTop:12,opacity:busy?0.6:1}} disabled={busy} onClick={updateOne}>{busy?"กำลังปรับ...":"ปรับสต๊อก"}</button>
+      </div>
+
+      <div style={C.card}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={C.h3}>📋 SKU ที่เคยเพิ่ม + สต๊อกคงเหลือใน Shopee {skuList?`(${skuList.length})`:""}</div>
+          <button style={C.btnS} onClick={loadSkuList} disabled={loadingList}>{loadingList?"กำลังโหลด...":"รีเฟรช"}</button>
+        </div>
+        <input style={{...C.inp,marginBottom:12}} placeholder="ค้นหา SKU หรือชื่อสินค้า..." value={search} onChange={e=>setSearch(e.target.value)}/>
+
+        {loadingList&&!skuList&&<div style={{fontSize:13,color:"#8b8fa8",textAlign:"center",padding:"20px 0"}}>กำลังโหลด...</div>}
+        {skuList&&skuList.length===0&&<div style={{fontSize:13,color:"#8b8fa8",textAlign:"center",padding:"20px 0"}}>ยังไม่มี SKU — กด "ดึงรายชื่อสินค้า" ด้านบนก่อน</div>}
+        {skuList&&skuList.length>0&&(
+          <div style={{overflowX:"auto",maxHeight:420,overflowY:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>
+                <th style={C.th}>SKU</th>
+                <th style={C.th}>ชื่อสินค้า</th>
+                <th style={C.th}>สต๊อกคงเหลือ</th>
+                <th style={C.th}></th>
+              </tr></thead>
+              <tbody>
+                {filtered.map((s,i)=>(
+                  <tr key={i}>
+                    <td style={{...C.td,fontWeight:700}}>{s.sku}</td>
+                    <td style={C.td}>{s.name}</td>
+                    <td style={{...C.td,fontWeight:700,color:s.stock===0?"#f87171":"#6ee7b7"}}>
+                      {s.stock===null||s.stock===undefined?"-":s.stock}
+                    </td>
+                    <td style={C.td}>
+                      <button style={{...C.btnS,padding:"4px 10px",fontSize:11}} onClick={()=>{setSku(s.sku);setQty(String(s.stock??""));}}>เลือก</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filtered.length===0&&<div style={{fontSize:13,color:"#8b8fa8",textAlign:"center",padding:"20px 0"}}>ไม่พบ SKU ที่ตรงกับคำค้นหา</div>}
+          </div>
+        )}
       </div>
     </React.Fragment>
   );
